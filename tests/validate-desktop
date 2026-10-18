@@ -605,8 +605,9 @@ else
     warn 'shellcheck unavailable; syntax checks still ran (install the package for linting)'
 fi
 
-python3 -m unittest "$source_root/tests/test_display_layouts.py"
-ok 'display layout unit tests'
+python3 -m unittest "$source_root/tests/test_display_layouts.py" \
+    "$source_root/tests/test_notification_focus.py"
+ok 'display layout and notification focus unit tests'
 
 personal_pattern='/home/(amice|demo)|PH5NY1BH326L|H7YCC6B70Y1S|6N45XC3'
 personal_pattern+='|C9LMTF003960|SNOPT_PATH|MOSEKLM|GUROBI_HOME|CUDA_PATH'

@@ -29,7 +29,7 @@
   "script-fail-notify": true,
   "scripts": {
     "focus-application-on-action": {
-      "exec": "~/.local/bin/focus-notification-app",
+      "exec": "sh -c \"$HOME/.local/bin/focus-notification-app\"",
       "run-on": "action"
     }
   },
