@@ -19,6 +19,7 @@ path_append() {
 path_prepend "$HOME/bin"
 path_prepend "$HOME/.local/bin"
 path_prepend "$HOME/.juliaup/bin"
+path_prepend "${CARGO_HOME:-$HOME/.cargo}/bin"
 {{- if eq .chezmoi.os "linux" }}
 path_append "$HOME/.local/share/JetBrains/Toolbox/scripts"
 {{- else if eq .chezmoi.os "darwin" }}

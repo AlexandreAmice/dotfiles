@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import importlib.util
 from importlib.machinery import SourceFileLoader
+import io
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -29,15 +33,60 @@ class DisplayLayoutsTest(unittest.TestCase):
         self.original_state = display_layouts.STATE_PATH
         self.original_lock = display_layouts.LOCK_PATH
         self.original_workspaces = display_layouts.NWG_WORKSPACES_PATH
+        self.original_rules = display_layouts.WORKSPACE_RULES_PATH
         display_layouts.STATE_PATH = root / "display-layouts.json"
         display_layouts.LOCK_PATH = root / "display-layouts.lock"
         display_layouts.NWG_WORKSPACES_PATH = root / "workspaces"
+        display_layouts.WORKSPACE_RULES_PATH = root / "workspace-outputs.conf"
 
     def tearDown(self) -> None:
         display_layouts.STATE_PATH = self.original_state
         display_layouts.LOCK_PATH = self.original_lock
         display_layouts.NWG_WORKSPACES_PATH = self.original_workspaces
+        display_layouts.WORKSPACE_RULES_PATH = self.original_rules
         self.temp_dir.cleanup()
+
+    def test_missing_daemon_dependency_fails_without_notifications(self) -> None:
+        with (
+            patch.dict(sys.modules, {"i3ipc": None}),
+            patch.object(sys, "argv", ["display-layouts", "daemon"]),
+            patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+            patch.object(display_layouts, "notify") as notify,
+            patch.object(display_layouts, "apply_profile") as apply_profile,
+        ):
+            self.assertEqual(display_layouts.main(), os.EX_CONFIG)
+        notify.assert_not_called()
+        apply_profile.assert_not_called()
+        self.assertIn("sudo apt install python3-i3ipc", stderr.getvalue())
+
+    def test_other_daemon_failures_are_logged_without_notifications(self) -> None:
+        with (
+            patch.object(sys, "argv", ["display-layouts", "daemon"]),
+            patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+            patch.object(display_layouts, "notify") as notify,
+            patch.object(
+                display_layouts, "daemon",
+                side_effect=display_layouts.LayoutError("Sway is unavailable"),
+            ),
+        ):
+            self.assertEqual(display_layouts.main(), 1)
+        notify.assert_not_called()
+        self.assertIn("Sway is unavailable", stderr.getvalue())
+
+    def test_interactive_failures_still_notify(self) -> None:
+        with (
+            patch.object(sys, "argv", ["display-layouts", "gui"]),
+            patch.object(sys, "stderr", new_callable=io.StringIO),
+            patch.object(display_layouts, "notify") as notify,
+            patch.object(
+                display_layouts, "run_gui",
+                side_effect=display_layouts.LayoutError("nwg-displays is unavailable"),
+            ),
+        ):
+            self.assertEqual(display_layouts.main(), 1)
+        notify.assert_called_once_with(
+            "Display layout error", "nwg-displays is unavailable", critical=True,
+        )
 
     def test_identity_prefers_description_with_serial(self) -> None:
         output = {
@@ -123,12 +172,12 @@ class DisplayLayoutsTest(unittest.TestCase):
 
     def test_seed_profiles_assign_all_ten_workspaces(self) -> None:
         state = json.loads(
-            (SOURCE_ROOT / "private_dot_config/sway/display-layouts.json").read_text()
+            (SOURCE_ROOT / "private_dot_config/sway/private_display-layouts.json").read_text()
         )
         display_layouts.validate_state(state)
-        self.assertEqual(
-            {profile["label"] for profile in state["profiles"].values()},
-            {"Office", "Home", "Mobile"},
+        self.assertTrue(
+            {"Office", "Home", "Mobile"}
+            <= {profile["label"] for profile in state["profiles"].values()},
         )
         for profile in state["profiles"].values():
             self.assertEqual(set(profile["workspaces"]), set(display_layouts.WORKSPACE_NAMES))
@@ -210,9 +259,85 @@ class DisplayLayoutsTest(unittest.TestCase):
             "transform normal scale 1 scale_filter smart adaptive_sync off dpms on",
             commands,
         )
+        self.assertIn("reload", commands)
         self.assertEqual(
-            len([command for command in commands if command.startswith("workspace ")]),
-            10,
+            len(display_layouts.WORKSPACE_RULES_PATH.read_text().splitlines()), 11
+        )
+
+    def test_reassignment_replaces_old_output_priority_and_survives_reload(self) -> None:
+        live = {
+            "laptop": {"name": "eDP-1", "active": True},
+            "monitor": {"name": "DP-12", "active": True},
+        }
+        # Model Sway 1.9: output commands append; reload clears the old rules.
+        priorities: list[str] = []
+
+        def command(value: str) -> None:
+            if value == "reload":
+                priorities.clear()
+                for line in display_layouts.WORKSPACE_RULES_PATH.read_text().splitlines():
+                    if line.startswith("workspace "):
+                        command(line)
+            elif value.startswith('workspace "4" output '):
+                priorities.append(json.loads(value.split(" output ", 1)[1]))
+
+        with patch.object(display_layouts, "sway_command", side_effect=command) as send:
+            display_layouts.replace_workspace_rules({"workspaces": {"4": "laptop"}}, live)
+            display_layouts.replace_workspace_rules({"workspaces": {"4": "monitor"}}, live)
+            self.assertEqual(priorities, ["DP-12"])
+            command("reload")
+            self.assertEqual(priorities, ["DP-12"])
+            send.reset_mock()
+            display_layouts.replace_workspace_rules({"workspaces": {"4": "monitor"}}, live)
+            send.assert_not_called()
+
+    def test_reassignment_moves_existing_workspace_and_restores_focus(self) -> None:
+        live = {"monitor": {"name": "DP-12", "active": True}}
+        with (
+            patch.object(display_layouts, "sway_json", return_value=[
+                {"name": "4", "output": "eDP-1", "focused": True},
+            ]),
+            patch.object(display_layouts, "sway_command") as send,
+        ):
+            display_layouts.apply_workspace_profile({"workspaces": {"4": "monitor"}}, live)
+        self.assertEqual([call.args[0] for call in send.call_args_list], [
+            "reload",
+            'workspace --no-auto-back-and-forth number "4"; move workspace to output "DP-12"',
+            'workspace --no-auto-back-and-forth "4"',
+        ])
+
+    def test_gui_assignment_wins_over_current_workspace_location(self) -> None:
+        outputs = [
+            {"name": "eDP-1", "make": "Laptop", "model": "Panel", "active": True},
+            {"name": "DP-12", "make": "Acer", "model": "Panel", "serial": "123", "active": True},
+        ]
+        target = display_layouts.output_identity(outputs[1])
+
+        def edit_workspaces(*_args, **_kwargs):
+            # The workspace Apply button saves this file before the GUI exits.
+            display_layouts.NWG_WORKSPACES_PATH.write_text("workspace 4 output DP-12\n")
+            return type("Result", (), {"returncode": 0})()
+
+        with (
+            patch.object(display_layouts.shutil, "which", return_value="nwg-displays"),
+            patch.object(display_layouts, "connected_outputs", return_value=outputs),
+            patch.object(display_layouts, "sway_json", return_value=[
+                {"name": "4", "output": "eDP-1", "focused": True},
+            ]),
+            patch.object(display_layouts, "NWG_OUTPUTS_PATH", Path(self.temp_dir.name) / "outputs"),
+            patch.object(display_layouts.subprocess, "run", side_effect=edit_workspaces),
+            patch.object(display_layouts, "sway_command") as send,
+            patch.object(display_layouts, "sync_to_chezmoi"),
+            patch.object(display_layouts, "notify"),
+        ):
+            self.assertEqual(display_layouts.run_gui(), 0)
+        _, profile = display_layouts.find_profile(
+            display_layouts.load_state(), display_layouts.monitor_set(outputs)
+        )
+        self.assertEqual(profile["workspaces"]["4"], target)
+        self.assertIn('workspace "4" output "DP-12"', display_layouts.WORKSPACE_RULES_PATH.read_text())
+        send.assert_any_call(
+            'workspace --no-auto-back-and-forth number "4"; move workspace to output "DP-12"'
         )
 
 

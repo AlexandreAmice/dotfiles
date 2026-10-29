@@ -1,0 +1,14 @@
+#!/bin/sh
+{{ if eq .chezmoi.os "darwin" -}}
+set -eu
+
+# Rendering another platform or a temporary home must not change host settings.
+[ "$(uname -s)" = Darwin ] || exit 0
+[ "${CHEZMOI_DEST_DIR:-$HOME}" = "$HOME" ] || exit 0
+
+# Keep the Dock out of the tiled desktop until the pointer reaches its edge.
+if [ "$(defaults read com.apple.dock autohide 2>/dev/null || true)" != 1 ]; then
+    defaults write com.apple.dock autohide -bool true
+    killall Dock
+fi
+{{- end }}

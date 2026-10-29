@@ -1,5 +1,9 @@
 {{- if eq .chezmoi.os "linux" }}
 .config/kanshi
+.config/systemd/user/sway-swaync.service
+.config/systemd/user/sway-waybar.service
+.local/bin/sway-trial-system
+.local/share/wayland-sessions/sway-intel.desktop
 .config/systemd/user/sway-kanshi.service
 .config/systemd/user/sway-rfkill.service
 .config/sway/scripts/apply-outputs

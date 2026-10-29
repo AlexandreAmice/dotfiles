@@ -4,8 +4,8 @@ set -euo pipefail
 swaymsg reload >/dev/null
 systemctl --user daemon-reload
 systemctl --user restart \
-    sway-waybar.service \
-    sway-swaync.service \
+    waybar.service \
+    swaync.service \
     sway-idle.service \
     sway-display-layouts.service
 

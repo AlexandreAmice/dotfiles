@@ -7,5 +7,5 @@ for slack_binary in /usr/bin/slack /snap/bin/slack; do
     fi
 done
 
-printf 'Slack is not installed. Run scripts/install-ubuntu.\n' >&2
+printf 'Slack is not installed. Run scripts/install.\n' >&2
 exit 127

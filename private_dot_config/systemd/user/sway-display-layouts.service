@@ -2,9 +2,13 @@
 Description=Persistent Sway display and workspace layouts
 PartOf=sway-session.target
 After=sway-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/display-layouts daemon
 Restart=on-failure
-RestartSec=2
+RestartSec=5
+# EX_CONFIG: a missing Python dependency needs installation, not a restart.
+RestartPreventExitStatus=78

@@ -1,0 +1,4 @@
+# Generate completion from the installed version when Bash first needs it.
+if command -v herdr >/dev/null 2>&1; then
+    source <(command herdr completion bash)
+fi

@@ -19,13 +19,40 @@ case "${SHELL:-}" in
 esac
 
 require_file "$HOME/.config/aerospace/aerospace.toml"
+check_toml_file "$HOME/.config/aerospace/aerospace.toml"
 require_file "$HOME/.config/ghostty/config.ghostty"
+for app in Signal Hammerspoon; do
+    if [ -d "/Applications/$app.app" ] || [ -d "$HOME/Applications/$app.app" ]; then
+        ok "$app application installed"
+    else
+        fail "$app application missing; run scripts/install"
+    fi
+done
+if [ -d "/Applications/pCloud Drive.app" ] || [ -d "$HOME/Applications/pCloud Drive.app" ] \
+    || [ -d /Applications/pCloud.app ] || [ -d "$HOME/Applications/pCloud.app" ]; then
+    ok 'pCloud application installed'
+else
+    fail 'pCloud application missing; run scripts/install'
+fi
+require_file "$HOME/.local/bin/apply-appearance"
+require_file "$HOME/.local/libexec/appearance/macos.js"
+require_file "$HOME/.local/state/tokyo-night/ghostty-opacity.conf"
+require_file "$HOME/.local/state/tokyo-night/wallpaper.png"
 require_file "$HOME/.local/bin/terminal-main"
 "$HOME/.local/bin/terminal-main" --check >/dev/null 2>&1 \
     && ok 'GUI terminal can resolve tmux' || fail 'GUI terminal cannot resolve tmux'
 
 ghostty_app=/Applications/Ghostty.app/Contents/MacOS/ghostty
-[ -x "$ghostty_app" ] && ok 'Ghostty application installed' || fail 'Ghostty application missing'
+if [ -x "$ghostty_app" ]; then
+    ok 'Ghostty application installed'
+    if ghostty_validation=$("$ghostty_app" +validate-config 2>&1) && [ -z "$ghostty_validation" ]; then
+        ok 'Ghostty config valid'
+    else
+        fail "Ghostty config validation failed: $ghostty_validation"
+    fi
+else
+    fail 'Ghostty application missing'
+fi
 
 for shadow in \
     "$HOME/.aerospace.toml" \

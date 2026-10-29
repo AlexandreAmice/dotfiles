@@ -1,0 +1,23 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+set -eu
+
+# Never change the real session when rendering a temporary validation home.
+[ "${CHEZMOI_DEST_DIR:-$HOME}" = "$HOME" ] || exit 0
+systemctl --user show-environment >/dev/null 2>&1 || exit 0
+
+# Use the standard names so graphical-session and Sway activation share one
+# process. Stop the old units before loading their replacements.
+# waybar: {{ include "private_dot_config/systemd/user/waybar.service" | sha256sum }}
+# swaync: {{ include "private_dot_config/systemd/user/swaync.service" | sha256sum }}
+# target: {{ include "private_dot_config/systemd/user/sway-session.target.tmpl" | sha256sum }}
+for unit in sway-waybar.service sway-swaync.service; do
+    if systemctl --user is-active --quiet "$unit"; then
+        systemctl --user stop "$unit"
+    fi
+done
+systemctl --user daemon-reload
+if systemctl --user is-active --quiet sway-session.target; then
+    systemctl --user restart waybar.service swaync.service
+fi
+{{ end -}}

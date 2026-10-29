@@ -10,18 +10,18 @@
     stripComponents = 1
     checksum.sha256 = "a1b9a2f0715163472ca713679204a1ca55d3f845cf1c659ae04222db3553424f"
 
-{{ if eq .chezmoi.os "linux" -}}
-[".local/share/fonts/JetBrainsMonoNerd-3.5.1"]
-    type = "archive"
-    url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz"
-    checksum.sha256 = "04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf"
-
 [".local/share/tokyo-night/wallpapers"]
     type = "archive"
     url = "https://github.com/AlexandreAmice/dotfiles-assets/releases/download/wallpapers-v1/tokyo-night-wallpapers-v1.tar.gz"
     stripComponents = 1
     exact = true
     checksum.sha256 = "266d37158697358a171c66e68e484440348a45800e9b531848da8b11c485b020"
+
+{{ if eq .chezmoi.os "linux" -}}
+[".local/share/fonts/JetBrainsMonoNerd-3.5.1"]
+    type = "archive"
+    url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz"
+    checksum.sha256 = "04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf"
 
 {{ if eq .chezmoi.arch "amd64" -}}
 [".local/opt/starship-1.26.0"]

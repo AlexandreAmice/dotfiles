@@ -1,35 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-{{ if .isAmiceWorkstation -}}
-outputs=${SWAY_OUTPUTS_JSON:-$(swaymsg --raw --type get_outputs)}
-main_output=""
-{{ range .desktop.profiles.amice_workstation.primary_output_serials -}}
-[[ -n "$main_output" ]] || main_output=$(jq -r --arg serial "{{ . }}" \
-    '.[] | select(.active and .serial == $serial) | .name' <<< "$outputs" | head -n 1)
-{{ end -}}
-[[ -n "$main_output" ]] || main_output=$(jq -r \
-    '.[] | select(.active and .focused) | .name' <<< "$outputs" | head -n 1)
-[[ -n "$main_output" ]] || main_output=$(jq -r \
-    '.[] | select(.active) | .name' <<< "$outputs" | head -n 1)
-
-if [[ -z "$main_output" ]]; then
-    notify-send --urgency=critical 'Waybar could not start' 'No active display was found.'
-    exit 1
-fi
-
-runtime_config="${XDG_RUNTIME_DIR:-/tmp}/waybar-main-${UID}.json"
-jq -n --arg output "$main_output" --arg include "$HOME/.config/waybar/config.json" \
-    '{output: $output, include: [$include]}' > "$runtime_config"
-config=$runtime_config
-{{ else -}}
-config="$HOME/.config/waybar/config.json"
-main_output=all
-{{ end -}}
-
-if [[ ${WAYBAR_DRY_RUN:-0} == 1 ]]; then
-    printf '%s\n' "$main_output"
-    exit 0
-fi
-
-exec "$HOME/.local/bin/waybar" --config "$config" --style "$HOME/.config/waybar/style.css"
+# With no output restriction, Waybar creates a bar on every connected screen.
+exec "$HOME/.local/bin/waybar" --config "$HOME/.config/waybar/config.json" --style "$HOME/.config/waybar/style.css"

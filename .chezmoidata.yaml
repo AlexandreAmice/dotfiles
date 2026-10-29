@@ -28,6 +28,14 @@ desktop:
     foreground: "c0caf5"
     foreground_alt: "a9b1d6"
     muted: "737aa2"
+    subtle: "565f89"
+    bright:
+      pink: "ff9eae"
+      green: "b9f27c"
+      yellow: "ffcf72"
+      blue: "9abdf5"
+      purple: "c7a9ff"
+      cyan: "a4daff"
     blue: "7aa2f7"
     cyan: "7dcfff"
     purple: "bb9af7"
@@ -68,8 +76,3 @@ desktop:
       key: "9"
     - name: "10"
       key: "0"
-  profiles:
-    amice_workstation:
-      primary_output_serials:
-        - "PH5NY1BH326L"
-        - "6N45XC3"

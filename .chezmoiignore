@@ -9,6 +9,10 @@ scripts/**
 tests
 tests/**
 
+# Python checks may import executable helpers from the source tree.
+**/__pycache__
+**/__pycache__/**
+
 # Atuin account material is always machine-local. Only config.toml is managed.
 .config/atuin/atuin-receipt.json
 .local/share/atuin
@@ -23,7 +27,6 @@ tests/**
 
 # Ubuntu Sway target.
 {{- if ne .chezmoi.os "linux" }}
-10_initialize_desktop_state.sh
 .config/foot
 .config/foot/**
 .config/gtklock
@@ -39,24 +42,27 @@ tests/**
 .config/wofi
 .config/wofi/**
 .config/systemd/user/sway-*.service
+.config/systemd/user/sway-*.path
+.config/systemd/user/waybar.service
+.config/systemd/user/swaync.service
 .config/systemd/user/sway-session.target
 .config/xdg-desktop-portal/sway-portals.conf
-.local/bin/apply-appearance
+.local/bin/display-layouts
+.local/bin/focus-notification-app
+.local/bin/focus-or-launch
+.local/bin/focus-pcloud
+.local/share/applications/signal-desktop.desktop
 .local/bin/lock-desktop
 .local/bin/session-action
+.local/bin/start-sway
+.local/bin/suspend-if-on-battery
 .local/libexec/waybar/desktop-temperature
 .local/bin/swaync
 .local/bin/swaync-client
 .local/bin/waybar
 .local/bin/wlogout
 .local/bin/slack
-.local/share/applications/signal-desktop.desktop
 .local/libexec/desktop-doctor/linux
-{{- end }}
-
-{{- if ne .chezmoi.arch "amd64" }}
-.config/systemd/user/sway-signal.service
-.local/share/applications/signal-desktop.desktop
 {{- end }}
 
 {{- if ne .chezmoi.os "darwin" }}
@@ -65,15 +71,28 @@ tests/**
 
 # macOS AeroSpace target.
 {{- if ne .chezmoi.os "darwin" }}
+20_macos_dock.sh
+.local/bin/desktop-commands
 .config/aerospace
 .config/aerospace/**
 .config/ghostty
 .config/ghostty/**
+.hammerspoon
+.hammerspoon/**
+Library
+Library/**
 {{- end }}
 
-# Hardware-specific configuration for the original Ubuntu workstation.
+# Native appearance adapters are platform-specific.
+{{- if ne .chezmoi.os "darwin" }}
+.local/libexec/appearance/macos.js
+{{- end }}
+
+{{- if ne .chezmoi.arch "amd64" }}
+.config/systemd/user/sway-signal.service
+.local/share/applications/signal-desktop.desktop
+{{- end }}
+
 {{- if not .isAmiceWorkstation }}
 .local/bin/start-sway-intel
-.local/bin/sway-trial-system
-.local/share/wayland-sessions/sway-intel.desktop
 {{- end }}

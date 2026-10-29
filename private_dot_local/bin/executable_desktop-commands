@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Search the annotated AeroSpace bindings without losing the original target."""
+import ast
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
+
+
+def query(*args):
+    result = subprocess.run(["aerospace", *args], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def catalog():
+    entries = {}
+    mode = ""
+    description = ""
+    config = Path.home() / ".config/aerospace/aerospace.toml"
+    for line in config.read_text().splitlines():
+        if line.startswith("["):
+            mode = line.strip()
+        if line.startswith("#@ "):
+            description = line[3:]
+            continue
+        match = re.fullmatch(r"([a-z0-9-]+) = ('[^']*')", line)
+        if mode == "[mode.main.binding]" and match:
+            key, value = match.groups()
+            command = ast.literal_eval(value)
+            if "/desktop-commands" not in command:
+                shortcut = key.replace("cmd", "Super").replace("alt", "Option").replace("-", "+")
+                entries[f"{description or command} — {shortcut}"] = command
+            description = ""
+    return entries
+
+
+def main():
+    entries = catalog()
+    if sys.argv[1:] == ["--print"]:
+        print("\n".join(entries))
+        return
+    if len(sys.argv) == 1:
+        window = query("list-windows", "--focused", "--format", "%{window-id}")
+        workspace = query("list-workspaces", "--focused")
+        subprocess.run([
+            "open", "-na", "Ghostty", "--args", "-e", str(Path(__file__).resolve()),
+            "--select", window, workspace,
+        ], check=True)
+        return
+    if len(sys.argv) != 4 or sys.argv[1] != "--select":
+        raise SystemExit("usage: desktop-commands [--print]")
+    result = subprocess.run([
+        "fzf", "--prompt=Desktop command > ", "--layout=reverse", "--border",
+        "--header=Enter runs · Escape cancels · type to search",
+    ], input="\n".join(entries), stdout=subprocess.PIPE, text=True)
+    command = entries.get(result.stdout.strip())
+    if result.returncode != 0 or command is None:
+        return
+    window, workspace = sys.argv[2:]
+    if window:
+        subprocess.run(["aerospace", "focus", "--window-id", window], check=True)
+        os.environ["AEROSPACE_WINDOW_ID"] = window
+        os.environ.pop("AEROSPACE_WORKSPACE", None)
+    elif workspace:
+        subprocess.run(["aerospace", "workspace", workspace], check=True)
+        os.environ["AEROSPACE_WORKSPACE"] = workspace
+        os.environ.pop("AEROSPACE_WINDOW_ID", None)
+    subprocess.run(["aerospace", "eval", command], check=True)
+
+
+if __name__ == "__main__":
+    main()

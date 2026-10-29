@@ -42,7 +42,7 @@ require_file() {
 }
 
 require_absent() {
-    [ ! -e "$1" ] || fail "platform/profile leak: $1"
+    { [ ! -e "$1" ] && [ ! -L "$1" ]; } || fail "platform/profile leak: $1"
 }
 
 linux_portable=$(materialize linux-portable linux portable | tail -n 1)
@@ -86,10 +86,29 @@ require_file "$linux_portable/.local/bin/slack"
 require_file "$linux_portable/.local/share/applications/signal-desktop.desktop"
 require_file "$mac_portable/.config/aerospace/aerospace.toml"
 require_file "$mac_portable/.config/ghostty/config.ghostty"
+require_file "$mac_portable/Library/Application Support/Code/User/keybindings.json"
+require_absent "$linux_portable/Library"
+require_absent "$linux_workstation/Library"
 require_file "$mac_portable/.zshrc"
 require_absent "$mac_portable/.config/sway"
+for unit in waybar swaync; do
+    for home in "$linux_portable" "$linux_workstation"; do
+        require_file "$home/.config/systemd/user/$unit.service"
+        [ ! -L "$home/.config/systemd/user/$unit.service" ] \
+            || fail "$unit.service should be a normal unit, not a mask"
+        require_absent "$home/.config/systemd/user/sway-$unit.service"
+        grep -Fq "$unit.service" "$home/.config/systemd/user/sway-session.target" \
+            || fail "$unit.service is not part of the Sway session"
+    done
+    require_absent "$mac_portable/.config/systemd/user/$unit.service"
+done
 require_absent "$mac_portable/.config/kanshi"
 require_absent "$mac_portable/.config/terminator"
+for helper in display-layouts focus-notification-app focus-or-launch focus-pcloud start-sway \
+    suspend-if-on-battery; do
+    require_file "$linux_portable/.local/bin/$helper"
+    require_absent "$mac_portable/.local/bin/$helper"
+done
 require_absent "$mac_portable/.local/share/applications/signal-desktop.desktop"
 ok 'platform and profile boundaries'
 
@@ -239,7 +258,8 @@ fi
 wallpaper_url='https://github.com/AlexandreAmice/dotfiles-assets/releases/download/wallpapers-v1/tokyo-night-wallpapers-v1.tar.gz'
 for linux_manifest in \
     "$work_dir/chezmoiexternal-linux-amd64.toml" \
-    "$work_dir/chezmoiexternal-linux-arm64.toml"
+    "$work_dir/chezmoiexternal-linux-arm64.toml" \
+    "$work_dir/chezmoiexternal-darwin-arm64.toml"
 do
     grep -Fq "$wallpaper_url" "$linux_manifest" \
         || fail 'Linux wallpaper external is missing its versioned release URL'
@@ -250,13 +270,10 @@ do
     grep -Fq 'exact = true' "$linux_manifest" \
         || fail 'Linux wallpaper external is not exact'
 done
-if grep -Fq 'tokyo-night-wallpapers' "$work_dir/chezmoiexternal-darwin-arm64.toml"; then
-    fail 'Linux wallpaper external leaked into the macOS manifest'
-fi
 ok 'multi-architecture external release manifests'
 
 for package in geoclue-2.0 gnome-control-center gnome-settings-daemon \
-    python3-i3ipc gir1.2-gtklayershell-0.1 fzf zoxide fd-find libfuse2t64 code
+    python3-i3ipc gir1.2-gtklayershell-0.1 fzf zoxide fd-find code
 do
     grep -Fxq "$package" "$source_root/packages/ubuntu.txt" \
         || fail "Ubuntu package is undeclared: $package"
@@ -264,7 +281,7 @@ done
 grep -Fqx 'url=https://api.beacondb.net/v1/geolocate' \
     "$source_root/packages/geoclue-beacondb.conf" \
     || fail 'BeaconDB GeoClue endpoint is undeclared'
-grep -Fq 'packages/geoclue-beacondb.conf' "$source_root/scripts/install-ubuntu" \
+grep -Fq 'packages/geoclue-beacondb.conf' "$source_root/scripts/install" \
     || fail 'Ubuntu setup does not install the BeaconDB GeoClue provider'
 grep -Fqx 'submit-data=false' "$source_root/packages/geoclue-beacondb.conf" \
     || fail 'BeaconDB observation submission must remain disabled'
@@ -283,58 +300,52 @@ grep -Fqx 'cask "slack"' "$source_root/Brewfile" \
 grep -Fqx 'URIs: https://packages.microsoft.com/repos/code' \
     "$source_root/packages/vscode.sources" \
     || fail 'Microsoft Visual Studio Code apt repository is undeclared'
-grep -Fqx 'URIs: https://updates.signal.org/desktop/apt' \
-    "$source_root/packages/signal-desktop.sources" \
-    || fail 'Signal Desktop apt repository is undeclared'
-grep -Fq "pcloud_public_code='XZrYdRJZLS6RF4kf6Jy6GFr4jqkc4S34Rlgy'" \
-    "$source_root/scripts/install-ubuntu" \
-    || fail 'Official pCloud AppImage link is undeclared'
-grep -Fq "pcloud_sha256='07e404be9e37ef2dffb6541fea74f10601f2a33fe490bcaa895fb5b238f81af6'" \
-    "$source_root/scripts/install-ubuntu" \
-    || fail 'Official pCloud AppImage checksum is undeclared'
 grep -Fq 'https://chatgpt.com/codex/install.sh' \
-    "$source_root/scripts/install-codex" \
+    "$source_root/scripts/install" \
     || fail 'Official Codex installer is undeclared'
-grep -Fq 'scripts/install-codex' \
-    "$source_root/scripts/install-ubuntu" \
+grep -Fq 'install_codex' \
+    "$source_root/scripts/install" \
     || fail 'Ubuntu setup does not install Codex'
-grep -Fq './scripts/install-codex' "$source_root/README.md" \
+grep -Fq 'install_codex' "$source_root/scripts/install" \
     || fail 'macOS setup does not install Codex'
 grep -Fq "https://codeberg.org/dnkl/foot/archive/\$foot_version.tar.gz" \
-    "$source_root/scripts/install-foot" \
+    "$source_root/scripts/install" \
     || fail 'Pinned Foot installer does not use the official source archive'
 grep -Fq '4296be402b5684d049534598e69db92b918f92beac9dab76b585207045f0b037' \
-    "$source_root/scripts/install-foot" \
+    "$source_root/scripts/install" \
     || fail 'Foot source checksum is missing'
 grep -Fq '9949fbce0826669369c3b9361ac04b0459fdc51037e2ccf2e2483794909903f4' \
-    "$source_root/scripts/install-foot" \
+    "$source_root/scripts/install" \
     || fail 'fcft source checksum is missing'
-grep -Fq 'scripts/install-foot' "$source_root/scripts/install-ubuntu" \
+grep -Fq "run_step 'Install Foot' install_foot" "$source_root/scripts/install" \
     || fail 'Ubuntu setup does not install a Herdr-compatible Foot version'
 grep -Fq '07bd92f892457d0153d7fea53e838555f9753974a53a4d989d294b6e75c40104' \
-    "$source_root/scripts/install-nwg-displays" \
+    "$source_root/scripts/install" \
     || fail 'nwg-displays source checksum is missing'
-grep -Fq 'scripts/install-nwg-displays' "$source_root/scripts/install-ubuntu" \
+grep -Fq "run_step 'Install nwg-displays' install_nwg_displays" "$source_root/scripts/install" \
     || fail 'Ubuntu setup does not install nwg-displays'
 for home in "$linux_portable" "$linux_workstation"; do
+    grep -Fq 'app_id="^signal$"' "$home/.config/sway/conf.d/60-rules.conf" \
+        || fail 'Signal workspace assignment is missing'
     grep -Fq "workspace number \$ws10" \
         "$home/.config/sway/conf.d/60-rules.conf" \
         || fail 'Communication apps are not assigned to workspace 10'
-    grep -Fq 'app_id="^signal$"' "$home/.config/sway/conf.d/60-rules.conf" \
-        || fail 'Signal workspace assignment is missing'
     grep -Fq 'app_id="^slack$"' "$home/.config/sway/conf.d/60-rules.conf" \
         || fail 'Slack workspace assignment is missing'
 done
 grep -Fq "open -a Slack" "$mac_portable/.config/aerospace/aerospace.toml" \
     || fail 'AeroSpace does not start Slack'
-grep -Fq "open -a Signal" "$mac_portable/.config/aerospace/aerospace.toml" \
-    || fail 'AeroSpace does not start Signal'
 grep -Fq "if.app-id = 'com.tinyspeck.slackmacgap'" \
     "$mac_portable/.config/aerospace/aerospace.toml" \
     || fail 'AeroSpace Slack workspace assignment is missing'
-grep -Fq "if.app-id = 'org.whispersystems.signal-desktop'" \
-    "$mac_portable/.config/aerospace/aerospace.toml" \
-    || fail 'AeroSpace Signal workspace assignment is missing'
+grep -Fq 'open -a Signal' "$mac_portable/.config/aerospace/aerospace.toml" \
+    || fail 'AeroSpace does not start Signal'
+if rg -n 'cloudflare|warp-taskbar' "$source_root/Brewfile" "$source_root/packages" \
+    "$source_root/scripts/install" "$linux_portable/.config/sway" "$mac_portable/.config/aerospace"; then
+    fail 'Cloudflare WARP should not be installed or configured'
+fi
+grep -Fq 'open -b com.pcloud.pcloud.macos' "$mac_portable/.config/aerospace/aerospace.toml" \
+    || fail 'AeroSpace does not start pCloud'
 ok 'platform dependency manifests'
 
 for home in "$linux_portable" "$linux_workstation"; do
@@ -439,13 +450,13 @@ if rg -n 'bindsym[[:space:]]+\$mod\+[^[:space:]]*(Return|space)' \
 then
     fail 'Kinesis-incompatible Super chord uses Return or Space'
 fi
-grep -Fq "alt-t = 'exec-and-forget open -na Ghostty'" \
+grep -Fq "cmd-t = 'exec-and-forget open -na Ghostty'" \
     "$mac_portable/.config/aerospace/aerospace.toml" \
     || fail 'macOS terminal shortcut is not the portable modifier+T chord'
-grep -Fq "alt-shift-t = 'exec-and-forget open -na Ghostty --args -e $mac_portable/.local/bin/terminal-main'" \
+grep -Fq "cmd-shift-t = 'exec-and-forget open -na Ghostty --args -e $mac_portable/.local/bin/terminal-main'" \
     "$mac_portable/.config/aerospace/aerospace.toml" \
     || fail 'macOS persistent terminal is not explicit on modifier+Shift+T'
-grep -Fq "alt-ctrl-t = 'exec-and-forget open -na Ghostty --args -e $mac_portable/.local/bin/terminal-agents'" \
+grep -Fq "cmd-ctrl-t = 'exec-and-forget open -na Ghostty --args -e $mac_portable/.local/bin/terminal-agents'" \
     "$mac_portable/.config/aerospace/aerospace.toml" \
     || fail 'macOS agent terminal is not explicit on modifier+Ctrl+T'
 if grep -Fq 'terminal-main' "$linux_portable/.config/foot/foot.ini"; then
@@ -559,13 +570,112 @@ if command -v zsh >/dev/null 2>&1; then
 else
     warn 'zsh unavailable; skipped native Zsh parser'
 fi
+require_file "$mac_portable/.local/bin/desktop-commands"
+require_absent "$linux_portable/.local/bin/desktop-commands"
+HOME="$mac_portable" python3 "$mac_portable/.local/bin/desktop-commands" --print > "$work_dir/mac-commands"
+grep -Fq 'Apps: Open application launcher — Super+d' "$work_dir/mac-commands" \
+    || fail 'macOS command palette is missing the launcher'
+python3 - "$mac_portable/.config/aerospace/aerospace.toml" <<'PYTHON'
+import sys, tomllib
+with open(sys.argv[1], 'rb') as stream:
+    config = tomllib.load(stream)
+bindings = config['mode']['main']['binding']
+assert all(key.startswith('cmd-') for key in bindings), 'mixed desktop modifiers'
+assert not {'cmd-c', 'cmd-v', 'cmd-x', 'cmd-shift-v'} & bindings.keys(), 'desktop bindings intercept native clipboard shortcuts'
+assert bindings['cmd-ctrl-c'] == 'exec-and-forget open -a "System Settings"'
+assert 'desktop-commands' in bindings['cmd-slash']
+assert bindings['cmd-d'] == 'exec-and-forget open -a /System/Applications/Apps.app || open -a /System/Library/CoreServices/Spotlight.app'
+assert bindings['cmd-e'] == 'layout tiles horizontal vertical'
+assert bindings['cmd-alt-q'] == 'close'
+for key, direction in [('h', 'left'), ('j', 'down'), ('k', 'up'), ('l', 'right')]:
+    assert bindings[f'cmd-{key}'] == f'focus {direction}'
+    assert bindings[f'cmd-alt-{key}'] == f'move {direction}'
+    assert bindings[f'cmd-ctrl-{key}'] == f'move-workspace-to-monitor {direction}'
+PYTHON
+ok 'uniform desktop modifiers and macOS command palette'
+python3 - "$mac_portable/Library/Application Support/Code/User/keybindings.json" <<'SHORTCUTS'
+import json, sys
+rules = json.load(open(sys.argv[1]))
+def resolve(key, **context):
+    context = dict(isMac=True, **context)
+    def matches(condition):
+        for term in condition.split(' && '):
+            value = bool(context.get(term.lstrip('!'), False))
+            if value == term.startswith('!'):
+                return False
+        return True
+    return next((rule for rule in reversed(rules)
+                 if rule['key'] == key and matches(rule['when'])), None)
+for selected in (False, True):
+    context = dict(terminalFocus=True, terminalTextSelected=selected, textInputFocus=True)
+    interrupt = resolve('ctrl+c', **context)
+    assert interrupt['command'] == 'workbench.action.terminal.sendSequence'
+    assert interrupt['args']['text'] == '\x03'
+    erase = resolve('ctrl+backspace', **context)
+    assert erase['args']['text'] == '\x17'
+    assert resolve('ctrl+a', **context) is None
+    assert resolve('ctrl+z', **context) is None
+    assert resolve('ctrl+s', **context) is None
+    assert bool(resolve('ctrl+shift+c', **context)) == selected
+    assert resolve('ctrl+shift+v', **context)['command'] == 'workbench.action.terminal.paste'
+assert resolve('ctrl+c', textInputFocus=True)['command'] == 'editor.action.clipboardCopyAction'
+assert resolve('ctrl+backspace', editorTextFocus=True)['command'] == 'deleteWordLeft'
+assert resolve('ctrl+z', textInputFocus=True)['command'] == 'undo'
+assert resolve('ctrl+y', textInputFocus=True)['command'] == 'redo'
+assert resolve('ctrl+s')['command'] == 'workbench.action.files.save'
+SHORTCUTS
+ok 'VS Code editor and terminal shortcut separation'
+if command -v luajit >/dev/null 2>&1; then
+    (cd "$source_root" && luajit tests/validate-hammerspoon.lua)
+elif command -v lua >/dev/null 2>&1; then
+    (cd "$source_root" && lua tests/validate-hammerspoon.lua)
+elif command -v nvim >/dev/null 2>&1; then
+    (cd "$source_root" && nvim --headless -u NONE -l tests/validate-hammerspoon.lua)
+else
+    warn 'Lua and Neovim unavailable; skipped Hammerspoon shortcut routing tests'
+fi
+require_file "$mac_portable/.local/bin/apply-appearance"
+require_file "$mac_portable/.local/libexec/appearance/macos.js"
+require_absent "$linux_portable/.local/libexec/appearance/macos.js"
+require_file "$mac_portable/.local/state/tokyo-night/ghostty-opacity.conf"
+python3 - "$linux_portable" "$mac_portable" <<'THEME'
+import configparser, pathlib, sys
+linux, mac = map(pathlib.Path, sys.argv[1:])
+foot = configparser.ConfigParser(interpolation=None)
+foot.read(linux / '.config/foot/foot.ini')
+ghostty = {}
+for line in (mac / '.config/ghostty/config.ghostty').read_text().splitlines():
+    if '=' in line and not line.startswith('#'):
+        key, value = map(str.strip, line.split('=', 1))
+        if key == 'palette':
+            number, color = value.split('=', 1)
+            ghostty['palette.' + number] = color
+        else:
+            ghostty[key] = value
+assert foot['colors-dark']['background'] == ghostty['background']
+assert foot['colors-dark']['foreground'] == ghostty['foreground']
+for i in range(16):
+    field = ('regular' + str(i)) if i < 8 else ('bright' + str(i - 8))
+    assert foot['colors-dark'][field] == ghostty['palette.' + str(i)]
+assert 'ghostty-opacity.conf' in ghostty['config-file']
+for relative in ('.tmux.conf', '.config/starship.toml', '.config/atuin/config.toml',
+                 '.config/herdr/config.toml', '.local/bin/terminal-main',
+                 '.local/bin/terminal-agents'):
+    assert (linux / relative).read_bytes() == (mac / relative).read_bytes(), relative
+for source in (linux / '.config/nvim').rglob('*'):
+    if source.is_file():
+        relative = source.relative_to(linux)
+        assert source.read_bytes() == (mac / relative).read_bytes(), str(relative)
+assert 'tokyonight-night' in (mac / '.config/nvim/lua/plugins/theme.lua').read_text()
+THEME
+ok 'shared terminal, prompt, tmux, and editor theme'
 ok 'macOS configs and shell syntax'
 
 if command -v systemd-analyze >/dev/null 2>&1; then
     unit_dir="$work_dir/units"
     mkdir -p "$unit_dir"
     for unit in \
-        "$linux_portable/.config/systemd/user/"sway-*.service \
+        "$linux_portable/.config/systemd/user/"*.service \
         "$linux_portable/.config/systemd/user/"sway-*.path \
         "$linux_portable/.config/systemd/user/sway-session.target"
     do
@@ -575,9 +685,11 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         esac
         # systemd expands %h through the account database, not $HOME. Point
         # verifier-only copies at the clean-room home it is actually checking.
+        # The parser check does not run externally installed Cargo binaries.
         sed \
             -e "s|%h|$unit_home|g" \
             -e 's|^ExecStart=.*/display-layouts daemon$|ExecStart=/bin/true|' \
+            -e 's|^ExecStart=.*/.cargo/bin/automatic-timezoned$|ExecStart=/bin/true|' \
             "$unit" > "$unit_dir/${unit##*/}"
     done
     SYSTEMD_UNIT_PATH="$unit_dir:/usr/lib/systemd/user" \
@@ -594,20 +706,20 @@ if command -v shellcheck >/dev/null 2>&1; then
         esac
     done < <(find "$linux_workstation" "$mac_portable" -type f -perm -u+x -print0)
     shellcheck "$source_root/scripts/check-ubuntu" \
-        "$source_root/scripts/install-codex" \
-        "$source_root/scripts/install-foot" \
-        "$source_root/scripts/install-nwg-displays" \
-        "$source_root/scripts/install-agent-integrations" \
-        "$source_root/scripts/install-ubuntu" \
+        "$source_root/scripts/install" \
         "$source_root/tests/validate-desktop"
     ok 'ShellCheck'
 else
     warn 'shellcheck unavailable; syntax checks still ran (install the package for linting)'
 fi
 
-python3 -m unittest "$source_root/tests/test_display_layouts.py" \
+python3 -B -m unittest "$source_root/tests/test_display_layouts.py" \
+    "$source_root/tests/test_macos_palette.py" \
+    "$source_root/tests/test_appearance.py" \
+    "$source_root/tests/test_install.py" \
+    "$source_root/tests/test_sway_session.py" \
     "$source_root/tests/test_notification_focus.py"
-ok 'display layout and notification focus unit tests'
+ok 'display layout, macOS palette, and appearance unit tests'
 
 personal_pattern='/home/(amice|demo)|PH5NY1BH326L|H7YCC6B70Y1S|6N45XC3'
 personal_pattern+='|C9LMTF003960|SNOPT_PATH|MOSEKLM|GUROBI_HOME|CUDA_PATH'

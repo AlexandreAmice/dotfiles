@@ -54,6 +54,11 @@ require_file "$HOME/.local/bin/display-layouts"
 require_file "$HOME/.config/sway/display-layouts.json"
 require_file "$HOME/.config/sway/scripts/output-profile-applied"
 require_file "$HOME/.config/systemd/user/sway-display-layouts.service"
+if python3 -c 'from i3ipc import Connection, Event' >/dev/null 2>&1; then
+    ok 'display layout Python dependency available'
+else
+    fail 'display layout dependency missing; run sudo apt install python3-i3ipc'
+fi
 
 if command -v sway >/dev/null 2>&1 && [ -r "$HOME/.config/sway/config" ]; then
     sway --unsupported-gpu --validate --config "$HOME/.config/sway/config" >/dev/null 2>&1 \
@@ -107,7 +112,7 @@ elif getent group video 2>/dev/null | awk -F: -v user="$USER" '
 '; then
     fail 'video-group membership is recorded but inactive; completely log out, then log in'
 else
-    fail 'backlight access is unavailable; rerun install-ubuntu --grant-backlight if needed'
+    fail 'backlight access is unavailable; rerun scripts/install --grant-backlight if needed'
 fi
 
 for wallpaper in midnight dusk dawn; do
@@ -124,7 +129,7 @@ if [ -x "$HOME/.local/bin/suspend-if-on-battery" ]; then
 fi
 
 if [ -n "${SWAYSOCK:-}" ] && command -v systemctl >/dev/null 2>&1; then
-    session_units='sway-waybar sway-swaync sway-idle sway-display-layouts sway-nm-applet sway-polkit-agent sway-blueman-applet sway-slack'
+    session_units='waybar swaync sway-idle sway-display-layouts sway-nm-applet sway-polkit-agent sway-blueman-applet sway-slack'
 {{ if eq .chezmoi.arch "amd64" -}}
     session_units="$session_units sway-signal"
 {{ end -}}

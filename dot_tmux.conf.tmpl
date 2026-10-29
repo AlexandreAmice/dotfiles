@@ -24,13 +24,13 @@ set -s escape-time 10
 # not advertise RGB to tmux 3.4. Declare both features explicitly.
 set -as terminal-features ',foot*:RGB:hyperlinks'
 
-# Focus panes directly, without the tmux prefix. Ctrl-H is deliberately left
-# to the terminal: many terminals encode Ctrl-Backspace as Ctrl-H.
+# Focus panes directly, without the tmux prefix. Foot and Ghostty map
+# Ctrl-Backspace to Ctrl-W separately, leaving Ctrl-H available for focus.
 unbind-key -n C-Left
 unbind-key -n C-Down
 unbind-key -n C-Up
 unbind-key -n C-Right
-unbind-key -n C-h
+bind-key -n C-h select-pane -L
 bind-key -n C-j select-pane -D
 bind-key -n C-k select-pane -U
 bind-key -n C-l select-pane -R
@@ -62,17 +62,17 @@ bind-key -n C-M-q confirm-before -p 'Kill pane #P? (y/n)' kill-pane
 
 # Tokyo Night status line; keybindings and pane behavior above remain unchanged.
 set -g status-position bottom
-set -g status-style 'bg=#1a1b26,fg=#a9b1d6'
+set -g status-style 'bg=#{{ .desktop.theme.background }},fg=#{{ .desktop.theme.foreground_alt }}'
 set -g status-left-length 30
 set -g status-right-length 80
-set -g status-left '#[fg=#1a1b26,bg=#7aa2f7,bold] #S #[fg=#7aa2f7,bg=#1a1b26] '
-set -g status-right '#[fg=#565f89]#(whoami)@#H  #[fg=#7dcfff]%H:%M #[fg=#bb9af7]%d-%b-%y '
-set -g window-status-format '#[fg=#565f89] #I:#W '
-set -g window-status-current-format '#[fg=#1a1b26,bg=#bb9af7,bold] #I:#W '
-set -g pane-border-style 'fg=#414868'
-set -g pane-active-border-style 'fg=#7aa2f7'
-set -g message-style 'bg=#24283b,fg=#7dcfff'
-set -g mode-style 'bg=#7aa2f7,fg=#1a1b26'
+set -g status-left '#[fg=#{{ .desktop.theme.background }},bg=#{{ .desktop.theme.blue }},bold] #S #[fg=#{{ .desktop.theme.blue }},bg=#{{ .desktop.theme.background }}] '
+set -g status-right '#[fg=#{{ .desktop.theme.subtle }}]#(whoami)@#H  #[fg=#{{ .desktop.theme.cyan }}]%H:%M #[fg=#{{ .desktop.theme.purple }}]%d-%b-%y '
+set -g window-status-format '#[fg=#{{ .desktop.theme.subtle }}] #I:#W '
+set -g window-status-current-format '#[fg=#{{ .desktop.theme.background }},bg=#{{ .desktop.theme.purple }},bold] #I:#W '
+set -g pane-border-style 'fg=#{{ .desktop.theme.surface_alt }}'
+set -g pane-active-border-style 'fg=#{{ .desktop.theme.blue }}'
+set -g message-style 'bg=#{{ .desktop.theme.surface }},fg=#{{ .desktop.theme.cyan }}'
+set -g mode-style 'bg=#{{ .desktop.theme.blue }},fg=#{{ .desktop.theme.background }}'
 
 # Rebuild terminal structure after a reboot. Continuum snapshots every five
 # minutes; resurrect restores sessions, windows, panes, layouts, and working

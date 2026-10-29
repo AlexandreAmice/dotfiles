@@ -1,0 +1,612 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# Newly deployed commands should work without opening another login shell.
+PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+export PATH
+grant_backlight=0
+integrations_only=0
+session_only=0
+case "${1:-}" in
+    "") ;;
+    --grant-backlight) grant_backlight=1 ;;
+    --agent-integrations) integrations_only=1 ;;
+    --sway-session) session_only=1 ;;
+    *) printf 'usage: %s [--grant-backlight | --agent-integrations | --sway-session]\n' "$0" >&2; exit 2 ;;
+esac
+[ "$#" -le 1 ] || {
+    printf 'usage: %s [--grant-backlight | --agent-integrations | --sway-session]\n' "$0" >&2
+    exit 2
+}
+
+# Keep failures visible without abandoning independent installation steps.
+failed_steps=0
+failure_summary=
+run_step() {
+    step_label=$1
+    shift
+    printf '\n==> %s\n' "$step_label"
+    if "$@"; then
+        return 0
+    else
+        step_status=$?
+        failed_steps=$((failed_steps + 1))
+        failure_summary="${failure_summary}  - $step_label (exit $step_status)
+"
+        printf 'Warning: %s failed (exit %s); continuing.\n' \
+            "$step_label" "$step_status" >&2
+    fi
+}
+
+install_rust() {
+    sh -eu -s -- rust <<'RUST_INSTALL'
+if cargo --version >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
+    printf 'Rust and Cargo are already installed.\n'
+    exit 0
+fi
+
+if command -v rustup >/dev/null 2>&1; then
+    # Repair an existing rustup installation that has no usable toolchain.
+    rustup default stable
+else
+    rust_installer=$(mktemp)
+    trap 'rm -f -- "$rust_installer"' EXIT
+    curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+        --output "$rust_installer" https://sh.rustup.rs
+    sh "$rust_installer" -y --profile minimal --default-toolchain stable --no-modify-path
+fi
+
+cargo --version
+rustc --version
+RUST_INSTALL
+}
+
+install_automatic_timezoned() {
+    sh -eu -s -- automatic-timezoned <<'AUTOMATIC_TIMEZONED_INSTALL'
+version=2.0.160
+binary="$HOME/.cargo/bin/automatic-timezoned"
+if [ -x "$binary" ] && [ "$("$binary" --version | awk '{print $NF}')" = "$version" ]; then
+    printf 'automatic-timezoned %s is already installed.\n' "$version"
+    exit 0
+fi
+# Match the path used by sway-datetime.service even with a custom CARGO_HOME.
+cargo install --locked --version "$version" --root "$HOME/.cargo" automatic-timezoned
+"$binary" --version
+AUTOMATIC_TIMEZONED_INSTALL
+}
+
+install_foot() {
+    # A separate strict shell stops this component at its first failure.
+    sh -eu -s -- foot <<'FOOT_INSTALL'
+foot_version=1.28.0
+foot_sha256=4296be402b5684d049534598e69db92b918f92beac9dab76b585207045f0b037
+fcft_version=3.3.1
+fcft_sha256=9949fbce0826669369c3b9361ac04b0459fdc51037e2ccf2e2483794909903f4
+minimum_fixed_version=1.20.0
+
+cleanup_legacy_foot() {
+    # Remove only the old installer-owned workaround and its matching links.
+    old_install="$HOME/.local/opt/foot-1.21.0"
+    for old_link in "$HOME/.local/bin/foot" "$HOME/.local/bin/footclient"; do
+        if [ "$(readlink "$old_link" 2>/dev/null || true)" = "$old_install/bin/foot" ]; then
+            rm -f -- "$old_link"
+        fi
+    done
+    if [ -d "$old_install" ]; then
+        rm -rf -- "$old_install"
+    fi
+}
+
+if [ -x /usr/local/bin/foot ] && [ -x /usr/local/bin/footclient ]; then
+    installed_version=$(/usr/local/bin/foot --version | awk '{print $3}')
+    if [ -n "$installed_version" ] && dpkg --compare-versions "$installed_version" ge "$foot_version"; then
+        cleanup_legacy_foot
+        printf 'Foot %s is already installed under /usr/local.\n' "$installed_version"
+        exit 0
+    fi
+fi
+
+build_packages='meson ninja-build pkg-config wayland-protocols libxkbcommon-dev
+libpixman-1-dev libwayland-dev libutf8proc-dev libtllist-dev
+libfontconfig1-dev libfreetype-dev libharfbuzz-dev libutempter-dev ncurses-bin'
+missing_packages=
+for package in $build_packages; do
+    if ! dpkg-query -W -f='${db:Status-Abbrev}' "$package" 2>/dev/null \
+        | grep -q '^ii '; then
+        missing_packages="$missing_packages $package"
+    fi
+done
+if [ -n "$missing_packages" ]; then
+    printf 'Installing Foot build dependencies (sudo authentication may be requested).\n'
+    sudo apt-get update
+    # shellcheck disable=SC2086
+    sudo apt-get install -y $missing_packages
+fi
+
+install_temp_dir=$(mktemp -d)
+trap 'rm -rf -- "$install_temp_dir"' EXIT
+foot_archive="$install_temp_dir/foot-$foot_version.tar.gz"
+fcft_archive="$install_temp_dir/fcft-$fcft_version.tar.gz"
+foot_source="$install_temp_dir/foot"
+
+curl --fail --location --show-error --output "$foot_archive" \
+    "https://codeberg.org/dnkl/foot/archive/$foot_version.tar.gz"
+curl --fail --location --show-error --output "$fcft_archive" \
+    "https://codeberg.org/dnkl/fcft/archive/$fcft_version.tar.gz"
+printf '%s  %s\n' "$foot_sha256" "$foot_archive" | sha256sum --check --status -
+printf '%s  %s\n' "$fcft_sha256" "$fcft_archive" | sha256sum --check --status -
+
+mkdir -p "$foot_source/subprojects/fcft"
+tar -xzf "$foot_archive" -C "$foot_source" --strip-components=1
+tar -xzf "$fcft_archive" -C "$foot_source/subprojects/fcft" \
+    --strip-components=1
+
+meson setup "$foot_source/bld" "$foot_source" \
+    --prefix=/usr/local \
+    --buildtype=release \
+    -Dtests=false \
+    -Ddocs=disabled
+meson compile -C "$foot_source/bld"
+printf 'Installing Foot %s under /usr/local (sudo authentication may be requested).\n' \
+    "$foot_version"
+sudo meson install -C "$foot_source/bld"
+
+installed_version=$(/usr/local/bin/foot --version | awk '{print $3}')
+if ! dpkg --compare-versions "$installed_version" ge "$minimum_fixed_version"; then
+    printf 'Installed Foot %s is older than required version %s.\n' \
+        "$installed_version" "$minimum_fixed_version" >&2
+    exit 1
+fi
+
+cleanup_legacy_foot
+
+printf 'Installed Foot %s from source under /usr/local.\n' "$installed_version"
+FOOT_INSTALL
+}
+
+install_codex() {
+    # A separate strict shell stops this component at its first failure.
+    sh -eu -s -- codex <<'CODEX_INSTALL'
+find_codex() {
+    if command -v codex >/dev/null 2>&1; then
+        command -v codex
+        return
+    fi
+
+    for candidate in \
+        "$HOME/.local/bin/codex" \
+        "$HOME/bin/codex" \
+        /opt/homebrew/bin/codex \
+        /usr/local/bin/codex
+    do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+
+    return 1
+}
+
+if codex_bin=$(find_codex); then
+    printf 'Codex is already installed: %s\n' "$codex_bin"
+    exit 0
+fi
+
+installer=$(mktemp)
+trap 'rm -f -- "$installer"' EXIT
+curl --fail --silent --show-error --location \
+    --output "$installer" https://chatgpt.com/codex/install.sh
+sh "$installer"
+
+if codex_bin=$(find_codex); then
+    printf 'Codex installed: %s\n' "$codex_bin"
+    printf "Run 'codex' once to sign in.\n"
+    exit 0
+fi
+
+printf 'The Codex installer completed, but the codex executable was not found.\n' >&2
+exit 1
+CODEX_INSTALL
+}
+
+install_nwg_displays() {
+    # A separate strict shell stops this component at its first failure.
+    sh -eu -s -- nwg-displays <<'NWG_DISPLAYS_INSTALL'
+version=0.4.4
+sha256=07bd92f892457d0153d7fea53e838555f9753974a53a4d989d294b6e75c40104
+
+if command -v nwg-displays >/dev/null 2>&1 \
+    && [ "$(/usr/bin/python3 -c 'from importlib.metadata import version; print(version("nwg-displays"))' 2>/dev/null)" = "$version" ]; then
+    printf 'nwg-displays %s is already installed.\n' "$version"
+    exit 0
+fi
+
+dependencies='python3-i3ipc python3-gi python3-build python3-installer
+python3-setuptools python3-wheel gir1.2-gtk-3.0
+gir1.2-gtklayershell-0.1 libgtk-layer-shell0'
+missing_packages=
+for package in $dependencies; do
+    if ! dpkg-query -W -f='${db:Status-Abbrev}' "$package" 2>/dev/null \
+        | grep -q '^ii '; then
+        missing_packages="$missing_packages $package"
+    fi
+done
+if [ -n "$missing_packages" ]; then
+    printf 'Installing nwg-displays dependencies (sudo authentication may be requested).\n'
+    sudo apt-get update
+    # shellcheck disable=SC2086
+    sudo apt-get install -y $missing_packages
+fi
+
+install_temp_dir=$(mktemp -d)
+trap 'rm -rf -- "$install_temp_dir"' EXIT
+archive="$install_temp_dir/nwg-displays-$version.tar.gz"
+source_dir="$install_temp_dir/nwg-displays"
+
+curl --fail --location --show-error --output "$archive" \
+    "https://github.com/nwg-piotr/nwg-displays/archive/refs/tags/v$version.tar.gz"
+printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check --status -
+mkdir -p "$source_dir"
+tar -xzf "$archive" -C "$source_dir" --strip-components=1
+
+(cd "$source_dir" && /usr/bin/python3 -m build --wheel --no-isolation)
+wheel=$(find "$source_dir/dist" -maxdepth 1 -type f -name '*.whl' -print -quit)
+[ -n "$wheel" ] || {
+    printf 'nwg-displays did not produce a wheel.\n' >&2
+    exit 1
+}
+
+printf 'Installing nwg-displays %s under /usr/local (sudo authentication may be requested).\n' \
+    "$version"
+# Ubuntu's system Python uses a local scheme: prefix /usr installs into
+# /usr/local. Prefix /usr/local would incorrectly add a second /local.
+sudo /usr/bin/python3 -m installer --prefix=/usr "$wheel"
+sudo install -D -m 0644 "$source_dir/nwg-displays.desktop" \
+    /usr/local/share/applications/nwg-displays.desktop
+sudo install -D -m 0644 "$source_dir/nwg-displays.svg" \
+    /usr/local/share/pixmaps/nwg-displays.svg
+sudo install -D -m 0644 "$source_dir/LICENSE" \
+    /usr/local/share/licenses/nwg-displays/LICENSE
+
+installed_version=$(/usr/bin/python3 -c 'from importlib.metadata import version; print(version("nwg-displays"))')
+if [ ! -x /usr/local/bin/nwg-displays ] || [ ! -x /usr/local/bin/nwg-displays-apply ]; then
+    printf 'Expected nwg-displays launchers in /usr/local/bin after installation.\n' >&2
+    exit 1
+fi
+if [ "$installed_version" != "$version" ]; then
+    printf 'Expected nwg-displays %s, found %s after installation.\n' \
+        "$version" "$installed_version" >&2
+    exit 1
+fi
+printf 'Installed nwg-displays %s from its verified source archive.\n' "$version"
+NWG_DISPLAYS_INSTALL
+}
+
+install_pcloud_linux() {
+    sh -eu -s -- pcloud-linux <<'PCLOUD_LINUX_INSTALL'
+if [ -x "$HOME/.local/opt/pcloud/pCloud.AppImage" ]; then
+    printf 'pCloud Drive is already installed.\n'
+    exit 0
+fi
+install_temp_dir=$(mktemp -d)
+trap 'rm -rf -- "$install_temp_dir"' EXIT
+pcloud_public_code='XZrYdRJZLS6RF4kf6Jy6GFr4jqkc4S34Rlgy'
+pcloud_sha256='07e404be9e37ef2dffb6541fea74f10601f2a33fe490bcaa895fb5b238f81af6'
+pcloud_download=$(curl --fail --silent --show-error \
+    "https://api.pcloud.com/getpublinkdownload?code=$pcloud_public_code")
+pcloud_host=$(printf '%s' "$pcloud_download" | jq -er '.hosts[0]')
+pcloud_path=$(printf '%s' "$pcloud_download" | jq -er '.path')
+pcloud_tag=$(printf '%s' "$pcloud_download" | jq -er '.dwltag')
+curl --fail --location --show-error \
+    --output "$install_temp_dir/pCloud.AppImage" \
+    "https://$pcloud_host$pcloud_path?dwltag=$pcloud_tag"
+printf '%s  %s\n' "$pcloud_sha256" "$install_temp_dir/pCloud.AppImage" \
+    | sha256sum --check --status -
+install -d -m 0755 "$HOME/.local/opt/pcloud"
+install -m 0755 "$install_temp_dir/pCloud.AppImage" \
+    "$HOME/.local/opt/pcloud/pCloud.AppImage"
+PCLOUD_LINUX_INSTALL
+}
+
+install_pcloud_macos() {
+    sh -eu -s -- pcloud-macos <<'PCLOUD_MACOS_INSTALL'
+for app in "/Applications/pCloud Drive.app" "$HOME/Applications/pCloud Drive.app" \
+    /Applications/pCloud.app "$HOME/Applications/pCloud.app"; do
+    if [ -d "$app" ]; then
+        printf 'pCloud Drive is already installed: %s\n' "$app"
+        exit 0
+    fi
+done
+
+# Universal package linked by pCloud's official macOS download page.
+pcloud_public_code='XZob9QJZcLQHMuTHlWQtw8mbqltsxyUscjQk'
+install_temp_dir=$(mktemp -d)
+trap 'rm -rf -- "$install_temp_dir"' EXIT
+download=$(curl --fail --silent --show-error \
+    "https://api.pcloud.com/getpublinkdownload?code=$pcloud_public_code")
+host=$(printf '%s' "$download" | jq -er 'select(.result == 0) | .hosts[0]')
+path=$(printf '%s' "$download" | jq -er '.path')
+tag=$(printf '%s' "$download" | jq -er '.dwltag')
+curl --fail --location --show-error --output "$install_temp_dir/pcloud.pkg" \
+    "https://$host$path?dwltag=$tag"
+# Check both the package signature and Apple's install assessment before sudo.
+signature=$(pkgutil --check-signature "$install_temp_dir/pcloud.pkg")
+printf '%s\n' "$signature" | grep -F 'Developer ID Installer: PCLOUD LTD (KSTWHH4JHP)' >/dev/null
+spctl --assess --type install "$install_temp_dir/pcloud.pkg"
+sudo installer -pkg "$install_temp_dir/pcloud.pkg" -target /
+printf 'pCloud installed. Open it and follow its native setup to enable Drive.\n'
+PCLOUD_MACOS_INSTALL
+}
+
+install_agent_integrations() {
+    # A separate strict shell stops this component at its first failure.
+    sh -eu -s -- agent-integrations <<'AGENT_INTEGRATIONS_INSTALL'
+if [ ! -d "$HOME/.codex" ]; then
+    printf 'Codex config directory is missing: %s/.codex\n' "$HOME" >&2
+    printf 'Start Codex once, then rerun this installer.\n' >&2
+    exit 1
+fi
+
+herdr_bin=
+for candidate in \
+    "$HOME/.local/bin/herdr" \
+    /opt/homebrew/bin/herdr \
+    /usr/local/bin/herdr \
+    /usr/bin/herdr
+do
+    if [ -x "$candidate" ]; then
+        herdr_bin=$candidate
+        break
+    fi
+done
+
+if [ -z "$herdr_bin" ]; then
+    printf 'Herdr is not installed; apply the dotfiles first.\n' >&2
+    exit 127
+fi
+
+"$herdr_bin" integration install codex
+status=$("$herdr_bin" integration status)
+printf '%s\n' "$status"
+printf '%s\n' "$status" | grep -Eq '^codex: (installed|current)' || {
+    printf 'Herdr did not report a working Codex integration.\n' >&2
+    exit 1
+}
+AGENT_INTEGRATIONS_INSTALL
+}
+
+finish_installation() {
+    if [ "$failed_steps" -ne 0 ]; then
+        printf '\nInstallation finished with %s failed step(s):\n%s' \
+            "$failed_steps" "$failure_summary" >&2
+        printf 'Resolve the failures and rerun this installer.\n' >&2
+        exit 1
+    fi
+    if [ "$integrations_only" -eq 1 ]; then
+        printf 'Herdr Codex integration configured.\n'
+        return 0
+    fi
+    printf "Software installation complete. Review 'chezmoi diff', then run 'chezmoi apply --verbose'.\n"
+    printf "Chezmoi deploys Atuin and desktop-doctor. Open a new shell after applying.\n"
+    printf "Run 'codex' once to sign in, then rerun '%s --agent-integrations'.\n" "$0"
+}
+
+if [ "$integrations_only" -eq 1 ]; then
+    run_step 'Configure Herdr Codex integration' install_agent_integrations
+    finish_installation
+    exit 0
+fi
+
+case "$(uname -s)" in
+    Darwin)
+        if [ "$session_only" -eq 1 ]; then
+            printf '%s\n' '--sway-session is supported on Ubuntu only.' >&2
+            exit 2
+        fi
+        if [ "$grant_backlight" -eq 1 ]; then
+            printf '%s\n' '--grant-backlight is supported on Ubuntu only.' >&2
+            exit 2
+        fi
+        if ! command -v brew >/dev/null 2>&1; then
+            if [ -x /opt/homebrew/bin/brew ]; then
+                eval "$(/opt/homebrew/bin/brew shellenv)"
+            elif [ -x /usr/local/bin/brew ]; then
+                eval "$(/usr/local/bin/brew shellenv)"
+            else
+                printf 'Install Homebrew from https://brew.sh, then rerun this installer.\n' >&2
+                exit 127
+            fi
+        fi
+        run_step 'Install Homebrew dependencies' brew bundle install --file "$repo_dir/Brewfile" --no-upgrade
+        run_step 'Install pCloud Drive' install_pcloud_macos
+        run_step 'Install Rust and Cargo' install_rust
+        run_step 'Install Codex' install_codex
+        finish_installation
+        printf 'Launch AeroSpace and grant Accessibility permission.\n'
+        exit 0
+        ;;
+    Linux) ;;
+    *) printf 'This installer supports Ubuntu and macOS only.\n' >&2; exit 1 ;;
+esac
+
+minimum_version=$(awk '$1 == "ubuntu_minimum:" { gsub(/"/, "", $2); print $2; exit }' \
+    "$repo_dir/.chezmoidata.yaml")
+[ -n "$minimum_version" ] || {
+    printf 'Could not read desktop.support.ubuntu_minimum.\n' >&2
+    exit 1
+}
+
+if [ ! -r /etc/os-release ]; then
+    printf 'This installer supports Ubuntu only.\n' >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1091
+. /etc/os-release
+if [ "${ID:-}" != ubuntu ]; then
+    printf 'Unsupported Linux distribution: %s\n' "${ID:-unknown}" >&2
+    exit 1
+fi
+if ! dpkg --compare-versions "${VERSION_ID:-0}" ge "$minimum_version"; then
+    printf 'Ubuntu %s is unsupported; Ubuntu %s or newer is required.\n' \
+        "${VERSION_ID:-unknown}" "$minimum_version" >&2
+    exit 1
+fi
+
+# Functions invoked by run_step cannot rely on set -e. Chain prerequisites
+# explicitly so a failed download or checksum never reaches installation.
+install_vscode_repository() {
+    wget -qO "$install_temp_dir/microsoft.asc" \
+        https://packages.microsoft.com/keys/microsoft.asc &&
+    gpg --batch --dearmor \
+        --output "$install_temp_dir/microsoft.gpg" \
+        "$install_temp_dir/microsoft.asc" &&
+    sudo install -o root -g root -m 0644 \
+        "$install_temp_dir/microsoft.gpg" /usr/share/keyrings/microsoft.gpg &&
+    sudo install -o root -g root -m 0644 \
+        "$repo_dir/packages/vscode.sources" /etc/apt/sources.list.d/vscode.sources
+}
+
+install_signal_repository() {
+    wget -qO "$install_temp_dir/signal.asc" \
+        https://updates.signal.org/desktop/apt/keys.asc &&
+    gpg --batch --dearmor \
+        --output "$install_temp_dir/signal-desktop-keyring.gpg" \
+        "$install_temp_dir/signal.asc" &&
+    sudo install -o root -g root -m 0644 \
+        "$install_temp_dir/signal-desktop-keyring.gpg" \
+        /usr/share/keyrings/signal-desktop-keyring.gpg &&
+    sudo install -o root -g root -m 0644 \
+        "$repo_dir/packages/signal-desktop.sources" \
+        /etc/apt/sources.list.d/signal-desktop.sources &&
+    retire_legacy_signal_repository
+}
+
+retire_legacy_signal_repository() {
+    legacy=/etc/apt/sources.list.d/signal-xenial.list
+    [ -f "$legacy" ] || return 0
+    # Only retire the known Signal-only source. Preserve any custom entries.
+    if ! awk '
+        /^[[:space:]]*(#|$)/ { next }
+        {
+            entries++
+            if ($0 !~ /^[[:space:]]*deb[[:space:]]+(\[[^]]+\][[:space:]]+)?https:\/\/updates[.]signal[.]org\/desktop\/apt\/?[[:space:]]+xenial[[:space:]]+main[[:space:]]*(#.*)?$/)
+                custom=1
+        }
+        END { exit (!entries || custom) }
+    ' "$legacy"; then
+        printf 'Custom entries in %s; remove the duplicate Signal entry manually.\n' "$legacy" >&2
+        return 1
+    fi
+    # .bak is ignored by APT; numbered backups preserve earlier migrations.
+    sudo mv --backup=numbered -- "$legacy" "$legacy.bak"
+}
+
+install_slack() {
+    if ! command -v snap >/dev/null 2>&1; then
+        sudo apt-get install -y snapd || return "$?"
+    fi
+    sudo snap install slack
+}
+
+install_sway_session() {
+    sudo install -D -o root -g root -m 0755 \
+        "$repo_dir/private_dot_local/bin/executable_start-sway" \
+        /usr/local/bin/start-sway &&
+    sudo install -D -o root -g root -m 0644 \
+        "$repo_dir/packages/sway.desktop" \
+        /usr/share/wayland-sessions/sway.desktop &&
+    sudo rm -f -- /usr/share/wayland-sessions/sway-dotfiles.desktop \
+        /usr/share/wayland-sessions/sway-intel.desktop
+}
+
+if [ "$session_only" -eq 1 ]; then
+    install_sway_session
+    exit "$?"
+fi
+
+# A broken dpkg transaction blocks every package installation. Check once,
+# before changing repositories or attempting independent installation steps.
+printf '\n==> Check Ubuntu package state\n'
+if ! package_audit=$(sudo dpkg --audit); then
+    printf 'Could not inspect dpkg state. Resolve the error above and rerun this installer.\n' >&2
+    exit 1
+fi
+if [ -n "$package_audit" ]; then
+    printf '%s\n' "$package_audit" >&2
+    printf '%s\n' \
+        'Ubuntu has an unfinished package operation. Run:' \
+        '  sudo dpkg --configure -a' \
+        '  sudo apt-get --fix-broken install' \
+        'Then rerun this installer.' >&2
+    exit 1
+fi
+
+packages=$(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$repo_dir/packages/ubuntu.txt")
+install_temp_dir=$(mktemp -d)
+trap 'rm -rf -- "$install_temp_dir"' EXIT
+
+run_step 'Update Ubuntu package lists' sudo apt-get update
+run_step 'Install repository tools' sudo apt-get install -y software-properties-common wget gpg
+run_step 'Enable universe repository' sudo add-apt-repository -y universe
+run_step 'Configure VS Code repository' install_vscode_repository
+architecture=$(dpkg --print-architecture)
+if [ "$architecture" = amd64 ]; then
+    run_step 'Configure Signal repository' install_signal_repository
+else
+    printf 'Signal Desktop and pCloud Drive are unavailable on %s; skipping them.\n' "$architecture"
+fi
+
+run_step 'Refresh package lists' sudo apt-get update
+# shellcheck disable=SC2086
+run_step 'Install Ubuntu manifest packages' sudo apt-get install -y $packages
+if [ "$architecture" = amd64 ]; then
+    run_step 'Install Signal' sudo apt-get install -y signal-desktop
+    run_step 'Install pCloud Drive' install_pcloud_linux
+fi
+run_step 'Register Sway login session' install_sway_session
+run_step 'Configure GeoClue' sudo install -D -o root -g root -m 0644 \
+    "$repo_dir/packages/geoclue-beacondb.conf" \
+    /etc/geoclue/conf.d/99-beacondb.conf
+if [ ! -x /usr/bin/slack ] && ! snap list slack >/dev/null 2>&1; then
+    run_step 'Install Slack' install_slack
+fi
+
+run_step 'Install Rust and Cargo' install_rust
+run_step 'Install automatic-timezoned' install_automatic_timezoned
+run_step 'Install Foot' install_foot
+run_step 'Install Codex' install_codex
+run_step 'Install nwg-displays' install_nwg_displays
+
+has_backlight=0
+find /sys/class/backlight -mindepth 1 -maxdepth 1 -print -quit | grep -q . \
+    && has_backlight=1
+
+video_members=$(getent group video 2>/dev/null | cut -d: -f4 || true)
+case ",$video_members," in
+    *,"$USER",*) video_membership_recorded=1 ;;
+    *) video_membership_recorded=0 ;;
+esac
+
+if [ "$grant_backlight" -eq 1 ] && [ "$has_backlight" -eq 1 ]; then
+    if id -nG "$USER" | tr ' ' '\n' | grep -qx video; then
+        printf 'Backlight group access is already active for %s.\n' "$USER"
+    elif [ "$video_membership_recorded" -eq 0 ]; then
+        run_step 'Grant backlight access' sudo usermod -aG video "$USER"
+        video_members=$(getent group video 2>/dev/null | cut -d: -f4 || true)
+        case ",$video_members," in
+            *,"$USER",*)
+                printf 'Added %s to the video group; log out completely before testing brightness.\n' "$USER"
+                ;;
+        esac
+    else
+        printf 'Backlight group access is recorded; log out completely, then log in.\n'
+    fi
+elif [ "$grant_backlight" -eq 0 ] && [ "$has_backlight" -eq 1 ]; then
+    printf 'Backlight access was not changed. If brightness is denied, rerun with --grant-backlight.\n'
+fi
+
+run_step 'Check Ubuntu dependencies' "$repo_dir/scripts/check-ubuntu"
+finish_installation

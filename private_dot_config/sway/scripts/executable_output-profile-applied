@@ -2,7 +2,6 @@
 set -eu
 
 # display-layouts runs this after a monitor profile changes. Appearance depends
-# on output orientation, and the single Waybar must follow the preferred active
-# display selected by start-waybar.
+# on output orientation; refresh the bars alongside it.
 "$HOME/.local/bin/apply-appearance" --restore --quiet
-systemctl --user restart sway-waybar.service
+systemctl --user restart waybar.service

@@ -1,6 +1,7 @@
 .DS_Store
 *.swp
 *.tmp
+__pycache__/
 
 # Defense in depth if an Atuin data directory is accidentally added to chezmoi.
 private_dot_config/atuin/*receipt*.json

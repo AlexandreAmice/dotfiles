@@ -2,9 +2,11 @@
 Description=Sway notification center
 PartOf=sway-session.target
 After=sway-session.target
+ConditionEnvironment=SWAYSOCK
 
 [Service]
-Type=simple
+Type=dbus
+BusName=org.freedesktop.Notifications
 ExecStart=%h/.local/bin/swaync
 Restart=on-failure
 RestartSec=2

@@ -7,9 +7,10 @@ after-login-command = []
 after-startup-command = [
     'exec-and-forget open -a Slack',
     'exec-and-forget open -a Signal',
+    'exec-and-forget open -b com.pcloud.pcloud.macos',
 ]
 
-enable-normalization-flatten-containers = true
+enable-normalization-flatten-containers = false
 enable-normalization-opposite-orientation-for-nested-containers = true
 accordion-padding = 28
 default-root-container-layout = 'tiles'
@@ -28,25 +29,64 @@ outer.bottom = {{ .desktop.layout.gaps_outer }}
 outer.top = {{ .desktop.layout.gaps_outer }}
 outer.right = {{ .desktop.layout.gaps_outer }}
 
+# Super is Command on macOS, matching Sway's Super modifier.
 [mode.main.binding]
-alt-t = 'exec-and-forget open -na Ghostty'
-alt-shift-t = 'exec-and-forget open -na Ghostty --args -e {{ .chezmoi.homeDir }}/.local/bin/terminal-main'
-alt-ctrl-t = 'exec-and-forget open -na Ghostty --args -e {{ .chezmoi.homeDir }}/.local/bin/terminal-agents'
-alt-slash = 'layout tiles horizontal vertical'
-alt-comma = 'layout accordion horizontal vertical'
-alt-f = 'fullscreen'
-alt-shift-f = 'layout floating tiling'
-alt-shift-q = 'close'
-alt-r = 'mode resize'
+#@ Apps: Open a plain terminal
+cmd-t = 'exec-and-forget open -na Ghostty'
+#@ Apps: Open or resume a persistent tmux terminal
+cmd-shift-t = 'exec-and-forget open -na Ghostty --args -e {{ .chezmoi.homeDir }}/.local/bin/terminal-main'
+#@ Apps: Open the Herdr agent workspace
+cmd-ctrl-t = 'exec-and-forget open -na Ghostty --args -e {{ .chezmoi.homeDir }}/.local/bin/terminal-agents'
+#@ Apps: Open application launcher
+# Apps opens the launcher on newer macOS; older releases use Spotlight.
+cmd-d = 'exec-and-forget open -a /System/Applications/Apps.app || open -a /System/Library/CoreServices/Spotlight.app'
+#@ Apps: Search desktop commands and shortcuts
+cmd-slash = 'exec-and-forget {{ .chezmoi.homeDir }}/.local/bin/desktop-commands'
+#@ System: Open system settings
+# Keep native Command+C/V/X clipboard shortcuts available to applications.
+cmd-ctrl-c = 'exec-and-forget open -a "System Settings"'
+#@ System: Reload desktop configuration
+cmd-shift-c = 'reload-config'
+#@ Windows: Close focused window
+cmd-alt-q = 'close'
+#@ Layout: Toggle horizontal and vertical tiles
+cmd-e = 'layout tiles horizontal vertical'
+#@ Layout: Stack windows vertically
+cmd-s = 'layout v_accordion'
+#@ Layout: Stack windows horizontally
+cmd-w = 'layout h_accordion'
+#@ Layout: Split side-by-side
+cmd-alt-b = 'split horizontal'
+#@ Layout: Split top-to-bottom
+cmd-alt-v = 'split vertical'
+#@ Layout: Toggle fullscreen
+cmd-f = 'fullscreen'
+#@ Layout: Toggle floating
+cmd-shift-f = 'layout floating tiling'
+#@ Layout: Enter resize mode
+cmd-r = 'mode resize'
+#@ Workspaces: Return to previous workspace
+cmd-tab = 'workspace-back-and-forth'
 
 {{ range .desktop.directions }}
-alt-{{ .key }} = 'focus {{ .name }}'
-alt-shift-{{ .key }} = 'move {{ .name }}'
+#@ Windows: Focus {{ .name }}
+cmd-{{ .key }} = 'focus {{ .name }}'
+#@ Windows: Move window {{ .name }}
+cmd-alt-{{ .key }} = 'move {{ .name }}'
+#@ Workspaces: Move workspace to monitor {{ .name }}
+cmd-ctrl-{{ .key }} = 'move-workspace-to-monitor {{ .name }}'
 {{ end }}
 {{ range .desktop.workspaces }}
-alt-{{ .key }} = 'workspace {{ .name }}'
-alt-shift-{{ .key }} = 'move-node-to-workspace {{ .name }}'
+#@ Workspaces: Switch to workspace {{ .name }}
+cmd-{{ .key }} = 'workspace {{ .name }}'
+#@ Workspaces: Move window to workspace {{ .name }}
+cmd-shift-{{ .key }} = 'move-node-to-workspace {{ .name }}'
 {{ end }}
+
+# Override automatic dialog floating for every detected window.
+[[on-window-detected]]
+check-further-callbacks = true
+run = 'layout tiling'
 
 [[on-window-detected]]
 if.app-id = 'com.tinyspeck.slackmacgap'

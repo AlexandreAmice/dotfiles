@@ -1,0 +1,12 @@
+#!/bin/sh
+{{ if eq .chezmoi.os "darwin" -}}
+set -eu
+
+[ "$(uname -s)" = Darwin ] || exit 0
+[ "${CHEZMOI_DEST_DIR:-$HOME}" = "$HOME" ] || exit 0
+
+# Free Ctrl+Left/Right for terminal word navigation instead of switching Spaces.
+defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 79 '{ enabled = 0; }'
+defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 81 '{ enabled = 0; }'
+killall Dock || true
+{{- end }}

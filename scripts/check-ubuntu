@@ -19,7 +19,7 @@ while IFS= read -r package; do
 done < "$manifest"
 
 if [ "$missing" -ne 0 ]; then
-    printf '%d of %d Ubuntu packages are missing. Run scripts/install-ubuntu.\n' \
+    printf '%d of %d Ubuntu packages are missing. Run scripts/install.\n' \
         "$missing" "$checked" >&2
     exit 1
 fi
@@ -49,21 +49,31 @@ if ! command -v codex >/dev/null 2>&1 \
     exit 1
 fi
 if ! command -v nwg-displays >/dev/null 2>&1; then
-    printf 'missing nwg-displays; run scripts/install-nwg-displays\n' >&2
+    printf 'missing nwg-displays; run scripts/install\n' >&2
     exit 1
 fi
-if [ "$(nwg-displays --version 2>/dev/null | awk '{print $NF}')" != 0.4.4 ]; then
-    printf 'nwg-displays 0.4.4 is required; run scripts/install-nwg-displays\n' >&2
+if [ "$(/usr/bin/python3 -c 'from importlib.metadata import version; print(version("nwg-displays"))' 2>/dev/null)" != 0.4.4 ]; then
+    printf 'nwg-displays 0.4.4 is required; run scripts/install\n' >&2
     exit 1
 fi
 if [ ! -x /usr/local/bin/foot ]; then
-    printf 'missing source-built Foot in /usr/local; run scripts/install-foot\n' >&2
+    printf 'missing source-built Foot in /usr/local; run scripts/install\n' >&2
     exit 1
 fi
 foot_version=$(/usr/local/bin/foot --version | awk '{print $3}')
 if ! dpkg --compare-versions "$foot_version" ge 1.20.0; then
     printf 'Foot %s still has the Herdr duplicate-key bug; version 1.20.0 or newer is required.\n' \
         "$foot_version" >&2
+    exit 1
+fi
+for tool in cargo rustc; do
+    if ! "$tool" --version >/dev/null 2>&1; then
+        printf 'missing working %s; run scripts/install\n' "$tool" >&2
+        exit 1
+    fi
+done
+if [ ! -x "$HOME/.cargo/bin/automatic-timezoned" ]; then
+    printf 'missing automatic-timezoned; run scripts/install\n' >&2
     exit 1
 fi
 printf 'Shared desktop applications are installed.\n'

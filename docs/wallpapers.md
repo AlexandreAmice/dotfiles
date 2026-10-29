@@ -5,7 +5,7 @@ The six Tokyo Night wallpapers were created for this dotfiles project on
 imagery. The public source-of-distribution record is
 [AlexandreAmice/dotfiles-assets](https://github.com/AlexandreAmice/dotfiles-assets).
 
-Chezmoi installs this immutable release asset on Linux only:
+Chezmoi installs this immutable release asset on Ubuntu and macOS:
 
 - Release: `wallpapers-v1`
 - Archive: `tokyo-night-wallpapers-v1.tar.gz`
@@ -38,3 +38,29 @@ or watermark.
 Each landscape source was re-composed as a native 10:16 portrait image. The
 palette, grain, geometric language, and quiet center were preserved while
 elements were redistributed for the tall canvas rather than cropped.
+
+## Shared appearance controls
+
+`apply-appearance --mood midnight|dusk|dawn|solid` selects the wallpaper on either
+platform. Midnight is the default, and existing machine-local choices survive
+deployment. Artwork is identical on Ubuntu and macOS. Portrait artwork is used
+for rotated Sway outputs and macOS screens taller than they are wide. Solid is
+an optional image generated from the shared background color outside the exact
+archive extraction directory.
+
+`apply-appearance --opacity 1.00|0.95|0.89` updates the platform's local terminal
+include. New terminal windows use it; existing Ghostty windows need a config
+reload. The default remains 95%. `--restore` reapplies the saved choices, which
+is also useful after attaching another screen. No hotplug service is installed
+on macOS. macOS wallpaper changes apply to currently connected screens, not
+every hidden native Space.
+
+Real-home setup applies native dark appearance and purple accents. On macOS,
+allow the terminal to control System Events under Privacy & Security →
+Automation if requested. Native accent changes may require reopening an app.
+Temporary Chezmoi destination homes skip host preference changes.
+
+`--initialize` prepares missing state without requiring downloaded wallpaper
+assets. `--no-native` updates wallpaper/opacity state without modifying host
+preferences, for diagnostics and tests. Runtime includes and wallpaper choices
+are generated locally and are not committed.

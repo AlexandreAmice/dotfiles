@@ -33,7 +33,7 @@ Once Codex has created `~/.codex`, install or refresh Herdr's hook:
 
 ```sh
 chezmoi cd
-./scripts/install-agent-integrations
+./scripts/install --agent-integrations
 ```
 
 The installer asks Herdr to merge its entries with existing Codex hooks, then

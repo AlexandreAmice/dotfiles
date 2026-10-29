@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Apply the shared desktop identity while preserving machine-local choices."""
+import argparse
+import os
+from pathlib import Path
+import platform
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+
+BACKGROUND = "{{ .desktop.theme.background }}"
+MOODS = ("midnight", "dusk", "dawn", "solid")
+OPACITIES = ("1.00", "0.95", "0.89")
+
+
+def atomic_write(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix="." + path.name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content if isinstance(content, bytes) else content.encode())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def solid_png():
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    pixel = bytes.fromhex(BACKGROUND)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress((b"\0" + pixel * 64) * 64)) + chunk(b"IEND", b""))
+
+
+def saved(path, default, allowed):
+    value = path.read_text().strip() if path.is_file() else default
+    return value if value in allowed else default
+
+
+def paths():
+    home = Path.home()
+    state = Path(os.environ.get("XDG_STATE_HOME", home / ".local/state")) / "tokyo-night"
+    data = Path(os.environ.get("XDG_DATA_HOME", home / ".local/share")) / "tokyo-night"
+    return state, data
+
+
+def initialize(system):
+    state, data = paths()
+    state.mkdir(parents=True, exist_ok=True)
+    mood = saved(state / "mood", "midnight", MOODS)
+    opacity = saved(state / "opacity", "0.95", OPACITIES)
+    for name, value in (("mood", mood), ("opacity", opacity)):
+        if not (state / name).exists():
+            atomic_write(state / name, value + "\n")
+    include = state / ("ghostty-opacity.conf" if system == "Darwin" else "foot-opacity.ini")
+    if not include.exists():
+        atomic_write(include, opacity_config(system, opacity))
+    link = state / "wallpaper.png"
+    if not link.exists() and not link.is_symlink():
+        link.symlink_to(data / "solid.png" if mood == "solid" else data / "wallpapers" / (mood + ".png"))
+    return state, data, mood, opacity
+
+
+def opacity_config(system, opacity):
+    return "background-opacity = " + opacity + "\n" if system == "Darwin" else "[colors-dark]\nalpha=" + opacity + "\n"
+
+
+def native_apply(system, landscape, portrait):
+    if system == "Darwin":
+        helper = Path.home() / ".local/libexec/appearance/macos.js"
+        subprocess.run(["osascript", "-l", "JavaScript", str(helper), str(landscape), str(portrait)], check=True)
+        current = subprocess.run(["defaults", "read", "NSGlobalDomain", "AppleInterfaceStyle"], capture_output=True, text=True)
+        if current.stdout.strip() != "Dark":
+            try:
+                result = subprocess.run([
+                    "osascript", "-e", 'tell application "System Events" to tell appearance preferences to set dark mode to true',
+                ], capture_output=True, text=True, timeout=30)
+            except subprocess.TimeoutExpired as error:
+                raise RuntimeError("macOS dark-mode automation timed out. Allow your terminal in System Settings > Privacy & Security > Automation > System Events, then retry.") from error
+            if result.returncode:
+                raise RuntimeError("Cannot enable macOS dark mode. Allow your terminal in System Settings > Privacy & Security > Automation > System Events, then retry. " + result.stderr.strip())
+        subprocess.run(["defaults", "write", "NSGlobalDomain", "AppleAccentColor", "-int", "5"], check=True)
+        subprocess.run(["defaults", "write", "NSGlobalDomain", "AppleHighlightColor", "-string", "0.968627 0.831373 1.000000 Purple"], check=True)
+    elif system == "Linux":
+        if shutil.which("swaymsg") and os.environ.get("SWAYSOCK"):
+            import json
+            outputs = json.loads(subprocess.check_output(["swaymsg", "--raw", "--type", "get_outputs"], text=True))
+            for output in outputs:
+                if output.get("active"):
+                    tall = output.get("transform") in ("90", "270", "flipped-90", "flipped-270")
+                    image = portrait if tall else landscape
+                    subprocess.run(["swaymsg", "--", "output", output["name"], "bg", str(image), "fill"], check=True, stdout=subprocess.DEVNULL)
+        if shutil.which("gsettings"):
+            for key, value in (("color-scheme", "prefer-dark"), ("gtk-theme", "Yaru-purple-dark"),
+                               ("icon-theme", "Papirus-Dark"), ("cursor-theme", "Adwaita"), ("cursor-size", "24")):
+                subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", key, value], check=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mood", choices=MOODS)
+    parser.add_argument("--opacity", choices=OPACITIES)
+    parser.add_argument("--restore", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--initialize", action="store_true", help="Initialize missing state without applying native preferences")
+    parser.add_argument("--no-native", action="store_true", help="Update local state without changing host settings")
+    args = parser.parse_args()
+    system = platform.system()
+    if system not in ("Linux", "Darwin"):
+        parser.error("only Ubuntu and macOS are supported")
+    state, data, mood, opacity = initialize(system)
+    if args.initialize:
+        return
+    mood, opacity = args.mood or mood, args.opacity or opacity
+    if mood == "solid":
+        landscape = data / "solid.png"
+        atomic_write(landscape, solid_png())
+        portrait = landscape
+    else:
+        landscape = data / "wallpapers" / (mood + ".png")
+        portrait = data / "wallpapers" / (mood + "-portrait.png")
+    if not landscape.is_file():
+        raise RuntimeError("Missing wallpaper: " + str(landscape) + ". Run chezmoi apply to install the pinned artwork.")
+    if not portrait.is_file():
+        portrait = landscape
+    dest = os.environ.get("CHEZMOI_DEST_DIR")
+    if not args.no_native and (not dest or Path(dest).resolve() == Path.home().resolve()):
+        native_apply(system, landscape, portrait)
+    atomic_write(state / "mood", mood + "\n")
+    atomic_write(state / "opacity", opacity + "\n")
+    atomic_write(state / ("ghostty-opacity.conf" if system == "Darwin" else "foot-opacity.ini"), opacity_config(system, opacity))
+    link = state / "wallpaper.png"
+    temporary = state / ".wallpaper-link"
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(landscape)
+    os.replace(temporary, link)
+    if not args.quiet:
+        print("Appearance: " + mood + "; terminal opacity: " + opacity + ". New terminal windows use the change.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        print("apply-appearance: " + str(error), file=sys.stderr)
+        sys.exit(1)

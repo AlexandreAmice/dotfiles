@@ -1,0 +1,27 @@
+-- Use the same Tokyo Night identity as the desktop and terminal adapters.
+return {
+  {
+    "folke/tokyonight.nvim",
+    opts = {
+      style = "night",
+      transparent = false,
+      on_colors = function(colors)
+        colors.bg = "#{{ .desktop.theme.background }}"
+        colors.bg_dark = "#{{ .desktop.theme.background_deep }}"
+        colors.bg_float = "#{{ .desktop.theme.surface }}"
+        colors.bg_popup = "#{{ .desktop.theme.surface }}"
+        colors.bg_visual = "#{{ .desktop.theme.surface_alt }}"
+        colors.fg = "#{{ .desktop.theme.foreground }}"
+        colors.fg_dark = "#{{ .desktop.theme.foreground_alt }}"
+        colors.comment = "#{{ .desktop.theme.muted }}"
+        colors.blue = "#{{ .desktop.theme.blue }}"
+        colors.cyan = "#{{ .desktop.theme.cyan }}"
+        colors.magenta = "#{{ .desktop.theme.purple }}"
+        colors.red = "#{{ .desktop.theme.pink }}"
+        colors.green = "#{{ .desktop.theme.green }}"
+        colors.yellow = "#{{ .desktop.theme.yellow }}"
+      end,
+    },
+  },
+  { "LazyVim/LazyVim", opts = { colorscheme = "tokyonight-night" } },
+}

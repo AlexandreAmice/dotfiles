@@ -31,7 +31,15 @@ if [[ -n "$window_id" ]]; then
 fi
 
 # First give pCloud's single-instance handler a chance to recreate its window.
-setsid --fork "$HOME/.config/pcloud/pcloud-launcher.sh" >/dev/null 2>&1
+launcher="$HOME/.config/pcloud/pcloud-launcher.sh"
+if [[ ! -x "$launcher" ]]; then
+    launcher="$HOME/.local/opt/pcloud/pCloud.AppImage"
+fi
+if [[ ! -x "$launcher" ]]; then
+    notify-send --urgency=critical 'pCloud is not installed' 'Run scripts/install to install pCloud Drive.'
+    exit 127
+fi
+setsid --fork "$launcher" >/dev/null 2>&1
 for _ in $(seq 1 20); do
     sleep 0.1
     window_id=$(find_window)
@@ -43,21 +51,21 @@ done
 
 # pCloud occasionally leaves its sync process alive after losing the Electron
 # renderer. A clean restart is the only reliable recovery for that state.
-pcloud_pattern="^$HOME/Downloads/pCloud[.]AppImage([[:space:]]|$)|^/tmp/[.]mount_pCloud[^/]*/pcloud[.]bin([[:space:]]|$)|^/proc/self/exe .*--user-data-dir=$HOME/[.]config/pcloud"
-mapfile -t pcloud_pids < <(pgrep -f "$pcloud_pattern" || true)
+pcloud_pattern="^$HOME/(Downloads|[.]local/opt/pcloud)/pCloud[.]AppImage([[:space:]]|$)|^/tmp/[.]mount_pCloud[^/]*/pcloud[.]bin([[:space:]]|$)|^/proc/self/exe .*--user-data-dir=$HOME/[.]config/pcloud"
+mapfile -t pcloud_pids < <(pgrep -u "$(id -u)" -f "$pcloud_pattern" || true)
 if (( ${#pcloud_pids[@]} )); then
     kill -TERM "${pcloud_pids[@]}" 2>/dev/null || true
     for _ in $(seq 1 50); do
-        pgrep -f "$pcloud_pattern" >/dev/null || break
+        pgrep -u "$(id -u)" -f "$pcloud_pattern" >/dev/null || break
         sleep 0.1
     done
 fi
-mapfile -t pcloud_pids < <(pgrep -f "$pcloud_pattern" || true)
+mapfile -t pcloud_pids < <(pgrep -u "$(id -u)" -f "$pcloud_pattern" || true)
 if (( ${#pcloud_pids[@]} )); then
     kill -KILL "${pcloud_pids[@]}" 2>/dev/null || true
 fi
 
-setsid --fork "$HOME/.config/pcloud/pcloud-launcher.sh" >/dev/null 2>&1
+setsid --fork "$launcher" >/dev/null 2>&1
 for _ in $(seq 1 150); do
     sleep 0.1
     window_id=$(find_window)

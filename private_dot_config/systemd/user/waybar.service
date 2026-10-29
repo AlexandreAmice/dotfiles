@@ -2,6 +2,7 @@
 Description=Waybar for Sway
 PartOf=sway-session.target
 After=sway-session.target
+ConditionEnvironment=SWAYSOCK
 
 [Service]
 Type=simple

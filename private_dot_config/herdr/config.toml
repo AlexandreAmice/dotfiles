@@ -9,8 +9,9 @@ name = "tokyo-night"
 prefix = "ctrl+b"
 
 # Keep Herdr's prefix bindings while adding the direct pane vocabulary used by
-# tmux. Ctrl-H remains available to terminals that encode Ctrl-Backspace as
-# Ctrl-H, so direct focus intentionally starts at J/K/L.
+# tmux. Foot and Ghostty map Ctrl-Backspace separately, so H/J/K/L are all
+# available for direct pane focus.
+focus_pane_left = ["prefix+h", "ctrl+h"]
 focus_pane_down = ["prefix+j", "ctrl+j"]
 focus_pane_up = ["prefix+k", "ctrl+k"]
 focus_pane_right = ["prefix+l", "ctrl+l"]

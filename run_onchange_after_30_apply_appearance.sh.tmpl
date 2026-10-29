@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+# Never modify host preferences when rendering a temporary validation home.
+[ "${CHEZMOI_DEST_DIR:-$HOME}" = "$HOME" ] || exit 0
+exec {{ joinPath .chezmoi.homeDir ".local/bin/apply-appearance" | quote }} --restore --quiet

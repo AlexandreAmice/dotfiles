@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+has_nvidia=0
+connected_other=
+connected_nvidia=
+disconnected_devices=
+for card in /sys/class/drm/card[0-9]*; do
+    # Connector entries also match the glob, but have no device driver.
+    [ -L "$card/device/driver" ] || continue
+    driver=$(readlink -f "$card/device/driver")
+    device="/dev/dri/${card##*/}"
+    connected=0
+    for status in "$card"-*/status; do
+        [ -r "$status" ] || continue
+        if [ "$(cat "$status")" = connected ]; then
+            connected=1
+            break
+        fi
+    done
+    if [ "${driver##*/}" = nvidia ]; then
+        has_nvidia=1
+        if [ "$connected" -eq 1 ]; then
+            connected_nvidia="${connected_nvidia:+$connected_nvidia:}$device"
+            continue
+        fi
+    elif [ "$connected" -eq 1 ]; then
+        connected_other="${connected_other:+$connected_other:}$device"
+        continue
+    fi
+    disconnected_devices="${disconnected_devices:+$disconnected_devices:}$device"
+done
+
+if [ "$has_nvidia" -eq 1 ]; then
+    # Sway refuses even an unused proprietary NVIDIA GPU without this flag.
+    set -- --unsupported-gpu "$@"
+    # Prefer a GPU with a connected monitor and retain the other GPUs for
+    # outputs and hotplug. Restricting the list to Intel can hide every monitor.
+    devices=$connected_other
+    for group in "$connected_nvidia" "$disconnected_devices"; do
+        [ -n "$group" ] || continue
+        devices="${devices:+$devices:}$group"
+    done
+    if [ -n "$devices" ] && [ "${WLR_DRM_DEVICES+x}" != x ]; then
+        export WLR_DRM_DEVICES="$devices"
+    fi
+fi
+
+export XDG_CURRENT_DESKTOP=sway
+export XDG_SESSION_DESKTOP=sway
+export XDG_SESSION_TYPE=wayland
+# Keep actual startup diagnostics; --validate cannot exercise display setup.
+log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sway"
+mkdir -p "$log_dir"
+if [ -f "$log_dir/session.log" ]; then
+    mv -f "$log_dir/session.log" "$log_dir/session.previous.log"
+fi
+exec /usr/bin/sway --debug "$@" >"$log_dir/session.log" 2>&1

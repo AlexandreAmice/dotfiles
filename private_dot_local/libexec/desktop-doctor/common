@@ -26,7 +26,7 @@ check_toml_file() {
 }
 
 check_shell_tooling() {
-    for command_name in fzf zoxide starship atuin fd nvim tree-sitter; do
+    for command_name in fzf zoxide starship atuin fd nvim tree-sitter cargo rustc; do
         require_command "$command_name"
     done
     require_file "$HOME/.config/starship.toml"
@@ -92,7 +92,7 @@ check_herdr() {
         if printf '%s\n' "$integration_status" | grep -Eq '^codex: (installed|current)'; then
             ok 'Herdr Codex integration installed'
         else
-            warn 'Herdr Codex integration missing; run `chezmoi cd`, then `./scripts/install-agent-integrations`'
+            warn 'Herdr Codex integration missing; run `chezmoi cd`, then `./scripts/install --agent-integrations`'
         fi
     fi
 }

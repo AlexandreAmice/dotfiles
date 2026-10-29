@@ -2,6 +2,7 @@
 set -euo pipefail
 
 selection=$(printf '%s\n' \
+    'Wallpaper · Solid' \
     'Wallpaper · Midnight' \
     'Wallpaper · Dusk' \
     'Wallpaper · Dawn' \
@@ -11,6 +12,7 @@ selection=$(printf '%s\n' \
     | wofi --dmenu --prompt 'Appearance' --width 460 --height 360 --cache-file /dev/null) || exit 0
 
 case "$selection" in
+    *Solid) exec "$HOME/.local/bin/apply-appearance" --mood solid ;;
     *Midnight) exec "$HOME/.local/bin/apply-appearance" --mood midnight ;;
     *Dusk) exec "$HOME/.local/bin/apply-appearance" --mood dusk ;;
     *Dawn) exec "$HOME/.local/bin/apply-appearance" --mood dawn ;;

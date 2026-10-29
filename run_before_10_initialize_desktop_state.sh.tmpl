@@ -1,17 +1,27 @@
-{{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
 set -eu
 
 state_dir={{ joinPath .chezmoi.homeDir ".local/state/tokyo-night" | quote }}
 wallpaper_dir={{ joinPath .chezmoi.homeDir ".local/share/tokyo-night/wallpapers" | quote }}
-
 umask 077
 mkdir -p "$state_dir"
 [ -f "$state_dir/mood" ] || printf 'midnight\n' > "$state_dir/mood"
 [ -f "$state_dir/opacity" ] || printf '0.95\n' > "$state_dir/opacity"
+mood=$(cat "$state_dir/mood")
+opacity=$(cat "$state_dir/opacity")
+case "$mood" in midnight|dusk|dawn|solid) ;; *) mood=midnight ;; esac
+case "$opacity" in 1.00|0.95|0.89) ;; *) opacity=0.95 ;; esac
+{{ if eq .chezmoi.os "darwin" -}}
+[ -f "$state_dir/ghostty-opacity.conf" ] \
+    || printf 'background-opacity = %s\n' "$opacity" > "$state_dir/ghostty-opacity.conf"
+{{ else -}}
 [ -f "$state_dir/foot-opacity.ini" ] \
-    || printf '[colors-dark]\nalpha=0.95\n' > "$state_dir/foot-opacity.ini"
+    || printf '[colors-dark]\nalpha=%s\n' "$opacity" > "$state_dir/foot-opacity.ini"
+{{ end -}}
 if [ ! -e "$state_dir/wallpaper.png" ] && [ ! -L "$state_dir/wallpaper.png" ]; then
-    ln -s "$wallpaper_dir/midnight.png" "$state_dir/wallpaper.png"
+    if [ "$mood" = solid ]; then
+        ln -s "${wallpaper_dir%/wallpapers}/solid.png" "$state_dir/wallpaper.png"
+    else
+        ln -s "$wallpaper_dir/$mood.png" "$state_dir/wallpaper.png"
+    fi
 fi
-{{- end }}

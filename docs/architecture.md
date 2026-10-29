@@ -19,9 +19,14 @@ and rules. The numeric order is intentional and must remain stable.
 
 Package declarations are separate from repository tooling. The root
 `Brewfile` is the macOS manifest and `packages/ubuntu.txt` is the Ubuntu
-manifest. The Ubuntu installer also configures vendor repositories for VS Code
-and Signal, installs Slack through its supported Snap, and installs pCloud
-Drive from its checksum-pinned official AppImage. Both platform setup paths use
+manifest. `scripts/install` selects the platform, installs its manifest and
+Codex, and continues independent steps after failures. On Ubuntu it also
+configures vendor repositories for VS Code and Signal, installs the verified
+pCloud AppImage, and installs Slack through its supported Snap. It registers the
+existing system-wide Sway session with a launcher that detects GPU drivers
+and connected displays at login, retaining both GPUs on hybrid machines.
+Older custom Sway entries are removed during installation.
+Both platform setup paths use
 OpenAI's official standalone installer for Codex; authentication and session
 state remain local. Installers live in `scripts/`, integration checks in
 `tests/`, and durable explanations in `docs/`; chezmoi ignores all three
@@ -38,8 +43,8 @@ Use the narrowest stable interface:
   Waybar's temperature probe is therefore
   `~/.local/libexec/waybar/desktop-temperature`.
 - `~/.config/sway/scripts` contains Sway session integration. `start-waybar`
-  remains here because it chooses a live output and builds session-specific
-  Waybar configuration.
+  remains here as the session service launcher. Waybar uses the shared
+  configuration on every connected screen without an output restriction.
 
 Do not move scripts broadly merely for symmetry; ownership and call surface
 decide the location.
@@ -69,6 +74,14 @@ Long-running Sway components are supervised by systemd user units and tied to
 the Sway session target. Small scripts connect components without embedding
 procedural behavior in compositor configuration.
 
+Chezmoi manages normal user units named `waybar.service` and `swaync.service`.
+Both Sway and distribution graphical-session activation resolve to those same
+units, so each component has one process. The units require an imported
+`SWAYSOCK` and stop with `sway-session.target`. Waybar retains the monitor-aware
+launcher, and SwayNC retains D-Bus notification ownership. A migration hook
+stops the old `sway-waybar`/`sway-swaync` units before starting their replacements;
+no vendor services are masked or globally disabled.
+
 ## Prompt and terminal decisions
 
 Native terminal windows begin with a plain shell so an SSH session is never
@@ -89,3 +102,17 @@ untruncated directory has its own line, Git branch/status and command duration
 share the next, and the final line is the clean `❯` character. SSH sessions
 conditionally add a separate `user@hostname` line above the directory. Time
 and project-language modules are intentionally omitted.
+
+## Shared appearance
+
+`.chezmoidata.yaml` owns theme colors, including bright terminal colors and the
+subdued tmux text token. Foot, Ghostty, Starship, tmux, and Neovim render these
+tokens. Neovim explicitly uses `tokyonight-night`; Herdr retains its built-in
+`tokyo-night` approximation. GTK and macOS use native dark/purple styles rather
+than exact recoloring of system chrome. VS Code remains under Settings Sync.
+
+The shared `apply-appearance` command writes machine-local opacity includes and
+wallpaper selections, then applies native appearance through Sway/GTK or a
+macOS AppKit adapter. Ghostty loads its optional runtime opacity include after
+its managed config. Setup initializes only missing values and restores them
+after deployment; temporary destinations never change the host desktop.

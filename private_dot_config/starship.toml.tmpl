@@ -15,30 +15,30 @@ $character"""
 [custom.remote]
 when = 'test -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}"'
 command = 'printf "%s@%s" "$USER" "$(hostname -s)"'
-style = "bold #7dcfff"
+style = "bold #{{ .desktop.theme.cyan }}"
 format = "[$output]($style)\n"
 shell = ["sh"]
 
 [directory]
-style = "bold #7aa2f7"
+style = "bold #{{ .desktop.theme.blue }}"
 format = "[$path]($style)"
 truncation_length = 0
 truncate_to_repo = false
 
 [git_branch]
 symbol = ""
-style = "#bb9af7"
+style = "#{{ .desktop.theme.purple }}"
 format = "[  $symbol $branch]($style)"
 
 [git_status]
-style = "#f7768e"
+style = "#{{ .desktop.theme.pink }}"
 format = "[($all_status$ahead_behind)]($style)"
 
 [cmd_duration]
 min_time = 2000
-style = "#737aa2"
+style = "#{{ .desktop.theme.muted }}"
 format = "[  $duration]($style)"
 
 [character]
-success_symbol = "[❯](bold #9ece6a)"
-error_symbol = "[❯](bold #f7768e)"
+success_symbol = "[❯](bold #{{ .desktop.theme.green }})"
+error_symbol = "[❯](bold #{{ .desktop.theme.pink }})"
